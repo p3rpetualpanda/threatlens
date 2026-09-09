@@ -1,17 +1,18 @@
+import os
 from typing import Dict, List
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
-from .models import Alert, AlertUpdate
-from .store import InMemoryStore
+from .models import Alert, AlertUpdate, SecurityEvent
+from .store import SQLiteStore
 
 app = FastAPI(
     title="ThreatLens",
     description="Explainable blue-team threat detection for synthetic security telemetry.",
     version="0.1.0",
 )
-store = InMemoryStore()
+store = SQLiteStore(os.getenv("THREATLENS_DB_PATH", "data/threatlens.db"))
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -58,3 +59,11 @@ def update_alert(alert_id: str, update: AlertUpdate) -> Alert:
         return store.update_alert(alert_id, update)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Alert not found") from exc
+
+
+@app.post("/api/events", response_model=List[Alert], status_code=201)
+def add_event(event: SecurityEvent) -> List[Alert]:
+    try:
+        return store.add_event(event)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc

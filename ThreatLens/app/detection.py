@@ -54,20 +54,29 @@ def detect(events: Iterable[SecurityEvent]) -> List[Alert]:
         if event.event_type == "authentication" and event.outcome == "failure":
             failed_by_ip[event.source_ip].append(event)
     for source_ip, failures in failed_by_ip.items():
-        if len(failures) >= 5:
-            selected = failures[:5]
-            alerts.append(
-                _alert(
-                    "brute-force-" + source_ip.replace(".", "-"),
-                    "Repeated authentication failures",
-                    "T1110",
-                    "Brute Force",
-                    min(0.99, 0.70 + len(failures) * 0.04),
-                    selected,
-                    ["Failed login from " + source_ip] * len(selected),
-                    "Block or rate-limit the source and verify the targeted account.",
+        ordered_failures = sorted(failures, key=lambda event: event.timestamp)
+        for end_index, end_event in enumerate(ordered_failures):
+            window_start = end_event.timestamp - timedelta(minutes=10)
+            window = [
+                event
+                for event in ordered_failures[: end_index + 1]
+                if event.timestamp >= window_start
+            ]
+            if len(window) >= 5:
+                selected = window[:5]
+                alerts.append(
+                    _alert(
+                        "brute-force-" + source_ip.replace(".", "-"),
+                        "Repeated authentication failures",
+                        "T1110",
+                        "Brute Force",
+                        min(0.99, 0.70 + len(window) * 0.04),
+                        selected,
+                        ["Failed login from " + source_ip] * len(selected),
+                        "Block or rate-limit the source and verify the targeted account.",
+                    )
                 )
-            )
+                break
 
     for event in events:
         if event.event_type == "process" and event.command:
@@ -126,6 +135,7 @@ def detect(events: Iterable[SecurityEvent]) -> List[Alert]:
                             "Confirm the user's location and revoke sessions if the activity is unauthorized.",
                         )
                     )
+                    # Emit only the first qualifying pair per user to intentionally deduplicate alerts.
                     break
             else:
                 continue
