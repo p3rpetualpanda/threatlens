@@ -1,5 +1,7 @@
 # ThreatLens
 
+![CI](https://github.com/p3rpetualpanda/threatlens/actions/workflows/ci.yml/badge.svg)
+
 ThreatLens is an explainable blue-team threat detection and incident-response MVP. It turns safe, deterministic synthetic security events into prioritized alerts with evidence, MITRE ATT&CK technique references, and analyst workflow fields.
 
 
