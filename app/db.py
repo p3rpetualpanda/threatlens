@@ -24,21 +24,27 @@ def connect(db_path: Path) -> sqlite3.Connection:
 
 
 def _ordered(migrations_dir: Path) -> list[Path]:
-    files = [p for p in migrations_dir.glob("*.sql") if _MIGRATION.match(p.name)]
-    return sorted(files, key=_num)
+    # key=_num raises on any .sql that is not NNN_name.sql (fail loud, don't skip);
+    # the filename breaks same-number ties so the order is stable.
+    return sorted(migrations_dir.glob("*.sql"), key=lambda p: (_num(p), p.name))
 
 
 def migrate(db_path: Path, migrations_dir: Path | None = None) -> int:
     migrations_dir = migrations_dir or Path(__file__).parent / "migrations"
+    if not migrations_dir.is_dir():
+        raise RuntimeError(f"migrations directory not found: {migrations_dir}")
+    scripts = _ordered(migrations_dir)
+    if not scripts:
+        raise RuntimeError(f"no migrations in {migrations_dir}")
     db_path.parent.mkdir(parents=True, exist_ok=True)
     with closing(connect(db_path)) as conn:
         current = int(conn.execute("PRAGMA user_version").fetchone()[0])
-        for path in _ordered(migrations_dir):
+        for path in scripts:
             num = _num(path)
             if num <= current:
                 continue
-            conn.executescript(path.read_text(encoding="utf-8"))
-            # num is an int from the filename; PRAGMA user_version has no parameterized form.
-            conn.execute(f"PRAGMA user_version={num}")  # nosec
-            conn.commit()
+            # executescript is autocommit, so a crash between a DDL statement and the
+            # version bump can leave the schema applied but the version unsaved.
+            script = path.read_text(encoding="utf-8") + f"\nPRAGMA user_version={num};\n"  # nosec
+            conn.executescript(script)
         return int(conn.execute("PRAGMA user_version").fetchone()[0])

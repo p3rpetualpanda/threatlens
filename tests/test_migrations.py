@@ -4,6 +4,8 @@ import sqlite3
 from contextlib import closing, suppress
 from pathlib import Path
 
+import pytest
+
 from app.db import _ordered, connect, migrate
 
 
@@ -82,3 +84,42 @@ def test_wal_mode_is_persisted(tmp_path: Path) -> None:
     with closing(connect(db)) as conn:
         mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
     assert mode.lower() == "wal"
+
+
+def test_orders_raises_on_unnumbered_migration(tmp_path: Path) -> None:
+    d = tmp_path / "m"
+    d.mkdir()
+    (d / "1_initial.sql").write_text("", encoding="utf-8")
+    (d / "2.sql").write_text("", encoding="utf-8")  # missing the _name part
+    with pytest.raises(ValueError, match="not a numbered migration"):
+        _ordered(d)
+
+
+def test_same_number_orders_by_name(tmp_path: Path) -> None:
+    d = tmp_path / "m"
+    d.mkdir()
+    for name in ("5_b.sql", "5_a.sql"):
+        (d / name).write_text("", encoding="utf-8")
+    assert [p.name for p in _ordered(d)] == ["5_a.sql", "5_b.sql"]
+
+
+def test_foreign_keys_are_enforced(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    migrate(db)
+    with closing(connect(db)) as conn, pytest.raises(sqlite3.IntegrityError):
+        conn.execute(
+            "INSERT INTO alert_entities (id, alert_id, kind, value) "
+            "VALUES ('e1', 'missing_alert', 'host', 'h1')"
+        )
+
+
+def test_migrate_raises_when_migrations_dir_missing(tmp_path: Path) -> None:
+    with pytest.raises(RuntimeError, match="migrations directory not found"):
+        migrate(tmp_path / "t.db", migrations_dir=tmp_path / "no_such_dir")
+
+
+def test_migrate_raises_when_migrations_dir_empty(tmp_path: Path) -> None:
+    empty = tmp_path / "empty_m"
+    empty.mkdir()
+    with pytest.raises(RuntimeError, match="no migrations in"):
+        migrate(tmp_path / "t.db", migrations_dir=empty)
