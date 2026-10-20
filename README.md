@@ -2,46 +2,44 @@
 
 ![CI](https://github.com/p3rpetualpanda/threatlens/actions/workflows/ci.yml/badge.svg)
 
-ThreatLens is an explainable blue-team threat detection and incident-response MVP. It turns safe, deterministic synthetic security events into prioritized alerts with evidence, MITRE ATT&CK technique references, and analyst workflow fields.
+> v2 in progress; the v1 MVP is frozen at tag `v0.1.0`.
 
+ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
+beacon's findings into prioritised, explained alerts with an analyst incident
+workflow. It does no detection of its own.
 
+## Current state (v2, M0)
 
-## Current MVP
-
-- FastAPI service with `/health`, `/api/alerts`, and alert status updates.
-- SQLite persistence stores events, derived alerts, and analyst status updates across restarts.
-- The database path is configurable with `THREATLENS_DB_PATH` and defaults to `data/threatlens.db`; an empty database is seeded once with the deterministic demo events.
-- `POST /api/events` accepts a validated security event, persists it, and recomputes the alert list.
-- Deterministic seed data covering brute force, valid-account anomalies, encoded PowerShell, and large outbound transfers.
-- Evidence and recommendations attached to each alert.
-- Minimal dashboard at `/`.
-- Unit and API tests.
+- FastAPI app exposing `/health`.
+- SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
+  versioned by `PRAGMA user_version`.
+- First data model in place (see `app/migrations/001_initial.sql`);
+  `assets` and `identities` are minimal until M4.
+- Tooling: uv, ruff, mypy (strict), bandit, pip-audit, pytest. `make check` is the gate.
 
 ## Run locally
 
 ```powershell
-python -m venv .venv
-.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --reload-dir app
+uv sync
+make demo
 ```
 
-Open `http://127.0.0.1:8000/` for the dashboard or `http://127.0.0.1:8000/docs` for the API documentation.
+Open `http://127.0.0.1:8000/docs` for the API documentation.
 
-To use a different database path in PowerShell:
+To use a different database path:
 
 ```powershell
 $env:THREATLENS_DB_PATH = "data\local-threatlens.db"
 ```
 
-Run tests:
+Run the checks:
 
 ```powershell
-python -m pytest
+make check
 ```
-
-
 
 ## Responsible use
 
-ThreatLens is for education and defensive analysis. It uses documentation-safe IP ranges and synthetic events. Do not connect it to systems or telemetry that you do not own or have explicit permission to test.
+ThreatLens is for education and defensive analysis. It stores findings and analyst
+notes from telemetry you own or are authorised to test. Do not connect it to systems
+or telemetry that you do not own or have explicit permission to test.

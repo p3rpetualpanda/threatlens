@@ -56,6 +56,20 @@ def test_failed_migration_leaves_version_unchanged(tmp_path: Path) -> None:
         assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 0
 
 
+def test_failed_migration_after_success_keeps_last_good_version(tmp_path: Path) -> None:
+    d = tmp_path / "m"
+    d.mkdir()
+    (d / "1_good.sql").write_text("CREATE TABLE t1 (id TEXT PRIMARY KEY);", encoding="utf-8")
+    (d / "2_bad.sql").write_text("INSERT INTO does_not_exist VALUES (1);", encoding="utf-8")
+    db = tmp_path / "t.db"
+    with suppress(sqlite3.OperationalError):
+        migrate(db, migrations_dir=d)
+    with closing(connect(db)) as conn:
+        assert int(conn.execute("PRAGMA user_version").fetchone()[0]) == 1
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        assert "t1" in tables
+
+
 def test_migrate_creates_parent_dir(tmp_path: Path) -> None:
     db = tmp_path / "nested" / "deep" / "t.db"
     migrate(db)
