@@ -8,11 +8,16 @@ ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M0)
+## Current state (v2, M1)
 
 - FastAPI app exposing `/health`.
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
   versioned by `PRAGMA user_version`.
+- Ingest: `POST /api/v1/findings` (bearer API key, 10 MB / 5,000-finding limits,
+  all-or-nothing, idempotent by finding uid) and `threatlens import FILE`. Findings are
+  validated against the vendored beacon contract v1 (`contracts/`). Incident correlation
+  does not exist yet (M3).
+- API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - First data model in place (see `app/migrations/001_initial.sql`);
   `assets` and `identities` are minimal until M4.
 - Tooling: uv, ruff, mypy (strict), bandit, pip-audit, pytest. `make check` is the gate.
@@ -25,6 +30,13 @@ make demo
 ```
 
 Open `http://127.0.0.1:8000/docs` for the API documentation.
+
+Import beacon findings (set `THREATLENS_DB_PATH` first, or pass `--db`):
+
+```powershell
+uv run threatlens import tests/fixtures/findings.jsonl
+uv run threatlens create-api-key lab_a
+```
 
 To use a different database path:
 

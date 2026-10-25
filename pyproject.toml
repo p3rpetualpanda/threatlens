@@ -11,6 +11,9 @@ dependencies = [
     "uvicorn>=0.54.0,<1",
 ]
 
+[project.scripts]
+threatlens = "app.cli:main"
+
 [dependency-groups]
 dev = [
     "bandit>=1.8",
