@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/p3rpetualpanda/beacon/contracts/detection-finding-v1.schema.json",
+  "title": "Beacon detection finding (contract v1)",
+  "description": "One OCSF Detection Finding (class 2004) per JSON Lines row. Beacon-specific detail is under unmapped.",
+  "$defs": {
+    "text": {"type": "string"},
+    "nullable_text": {"type": ["string", "null"]},
+    "nullable_port": {"type": ["integer", "null"], "minimum": 0, "maximum": 65535},
+    "epoch_ms": {"type": "integer", "minimum": 0},
+    "string_set": {"type": "array", "items": {"type": "string"}, "uniqueItems": true}
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version", "class_uid", "category_uid", "activity_id", "type_uid", "time",
+    "severity_id", "severity", "status_id", "status", "metadata", "finding_info", "unmapped"
+  ],
+  "properties": {
+    "schema_version": {"type": "string", "pattern": "^1\\.\\d+$"},
+    "class_uid": {"const": 2004},
+    "category_uid": {"const": 2},
+    "activity_id": {"const": 1},
+    "type_uid": {"const": 200401},
+    "time": {"$ref": "#/$defs/epoch_ms"},
+    "severity_id": {"enum": [2, 3, 4, 5]},
+    "severity": {"enum": ["Low", "Medium", "High", "Critical"]},
+    "status_id": {"enum": [1, 2, 4]},
+    "status": {"enum": ["New", "In Progress", "Resolved"]},
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["version", "product"],
+      "properties": {
+        "version": {"type": "string", "minLength": 1},
+        "product": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "vendor_name", "version"],
+          "properties": {
+            "name": {"type": "string", "minLength": 1},
+            "vendor_name": {"type": "string", "minLength": 1},
+            "version": {"type": "string", "minLength": 1}
+          }
+        }
+      }
+    },
+    "finding_info": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["uid", "title", "desc", "first_seen_time", "last_seen_time", "analytic", "attacks"],
+      "properties": {
+        "uid": {"type": "string", "minLength": 1},
+        "title": {"type": "string"},
+        "desc": {"type": "string"},
+        "first_seen_time": {"$ref": "#/$defs/epoch_ms"},
+        "last_seen_time": {"$ref": "#/$defs/epoch_ms"},
+        "analytic": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["uid", "name", "type_id", "type"],
+          "properties": {
+            "uid": {"type": "string", "pattern": "^[A-Z]\\d{2}$"},
+            "name": {"type": "string"},
+            "type_id": {"const": 1},
+            "type": {"const": "Rule"}
+          }
+        },
+        "attacks": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["technique", "tactic"],
+            "properties": {
+              "technique": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["uid"],
+                "properties": {"uid": {"type": "string", "pattern": "^T\\d{4}(\\.\\d{3})?$"}}
+              },
+              "tactic": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name"],
+                "properties": {"name": {"type": "string", "minLength": 1}}
+              }
+            }
+          }
+        }
+      }
+    },
+    "unmapped": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "environment", "data_sources", "beacon_status", "entities", "evidence", "evidence_total"
+      ],
+      "properties": {
+        "environment": {"type": "string", "minLength": 1},
+        "data_sources": {"$ref": "#/$defs/string_set"},
+        "beacon_status": {"enum": ["new", "triaged", "true_positive", "false_positive", "closed"]},
+        "entities": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["hosts", "users", "src_ips", "dst_ips", "processes"],
+          "properties": {
+            "hosts": {"$ref": "#/$defs/string_set"},
+            "users": {"$ref": "#/$defs/string_set"},
+            "src_ips": {"$ref": "#/$defs/string_set"},
+            "dst_ips": {"$ref": "#/$defs/string_set"},
+            "processes": {"$ref": "#/$defs/string_set"}
+          }
+        },
+        "evidence": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "event_id", "ts", "source", "event_code", "event_action", "event_outcome",
+              "host_name", "user_name", "process_name", "process_command_line",
+              "parent_process_name", "src_ip", "src_port", "dst_ip", "dst_port"
+            ],
+            "properties": {
+              "event_id": {"$ref": "#/$defs/text"},
+              "ts": {"type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{6}Z$"},
+              "source": {"$ref": "#/$defs/nullable_text"},
+              "event_code": {"$ref": "#/$defs/nullable_text"},
+              "event_action": {"$ref": "#/$defs/nullable_text"},
+              "event_outcome": {"$ref": "#/$defs/nullable_text"},
+              "host_name": {"$ref": "#/$defs/nullable_text"},
+              "user_name": {"$ref": "#/$defs/nullable_text"},
+              "process_name": {"$ref": "#/$defs/nullable_text"},
+              "process_command_line": {"$ref": "#/$defs/nullable_text"},
+              "parent_process_name": {"$ref": "#/$defs/nullable_text"},
+              "src_ip": {"$ref": "#/$defs/nullable_text"},
+              "src_port": {"$ref": "#/$defs/nullable_port"},
+              "dst_ip": {"$ref": "#/$defs/nullable_text"},
+              "dst_port": {"$ref": "#/$defs/nullable_port"}
+            }
+          }
+        },
+        "evidence_total": {"type": "integer", "minimum": 1}
+      }
+    }
+  }
+}
