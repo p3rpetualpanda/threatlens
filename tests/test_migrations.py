@@ -123,3 +123,18 @@ def test_migrate_raises_when_migrations_dir_empty(tmp_path: Path) -> None:
     empty.mkdir()
     with pytest.raises(RuntimeError, match="no migrations in"):
         migrate(tmp_path / "t.db", migrations_dir=empty)
+
+
+def test_half_applied_migration_is_rolled_back(tmp_path: Path) -> None:
+    d = tmp_path / "m"
+    d.mkdir()
+    (d / "1_bad.sql").write_text(
+        "CREATE TABLE t1 (id TEXT);\nINSERT INTO does_not_exist VALUES (1);", encoding="utf-8"
+    )
+    db = tmp_path / "t.db"
+    for _ in range(2):  # the second start must fail the same way, not on "table t1 exists"
+        with pytest.raises(sqlite3.OperationalError, match="does_not_exist"):
+            migrate(db, migrations_dir=d)
+    with closing(connect(db)) as conn:
+        tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert "t1" not in tables

@@ -43,8 +43,8 @@ def migrate(db_path: Path, migrations_dir: Path | None = None) -> int:
             num = _num(path)
             if num <= current:
                 continue
-            # executescript is autocommit, so a crash between a DDL statement and the
-            # version bump can leave the schema applied but the version unsaved.
-            script = path.read_text(encoding="utf-8") + f"\nPRAGMA user_version={num};\n"  # nosec
-            conn.executescript(script)
+            # One transaction (SQLite DDL and user_version are transactional): a failure part
+            # way leaves no half-applied schema; closing the connection rolls it back.
+            body = path.read_text(encoding="utf-8")
+            conn.executescript(f"BEGIN;\n{body}\nPRAGMA user_version={num};\nCOMMIT;")  # nosec
         return int(conn.execute("PRAGMA user_version").fetchone()[0])

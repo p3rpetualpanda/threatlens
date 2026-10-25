@@ -58,3 +58,10 @@ def test_errors_are_ordered_by_index_and_typed() -> None:
     errors = validate_findings(list(broken))
     assert [e.index for e in errors] == [1, 3]
     assert isinstance(errors[0], FindingError)
+
+
+def test_time_beyond_year_9999_is_rejected() -> None:
+    finding = _fixture()[0]
+    finding["time"] = 10**17  # passes the schema, but no datetime can hold it
+    errors = validate_findings([finding])
+    assert [(e.index, e.path) for e in errors] == [(0, "time")]
