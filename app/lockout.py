@@ -62,3 +62,21 @@ def forgive(conn: sqlite3.Connection, user_key: str, attempt_ids: list[int]) -> 
     """
     conn.execute("DELETE FROM login_attempts WHERE key = ?", [user_key])
     conn.executemany("DELETE FROM login_attempts WHERE id = ?", [(i,) for i in attempt_ids])
+
+
+def tipped_over(
+    conn: sqlite3.Connection, keys: list[str], attempt_ids: list[int], now: datetime
+) -> bool:
+    """True if this attempt's own row is the one that reached the limit for some key.
+
+    Unlike `is_locked`, two attempts that fail at the same moment cannot both answer yes.
+    """
+    since = (now - WINDOW).isoformat()
+    return any(
+        conn.execute(
+            "SELECT count(*) FROM login_attempts WHERE key = ? AND at > ? AND id <= ?",
+            [key, since, attempt_id],
+        ).fetchone()[0]
+        == MAX_FAILURES
+        for key, attempt_id in zip(keys, attempt_ids, strict=True)
+    )

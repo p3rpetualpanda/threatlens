@@ -11,7 +11,7 @@ from typing import Any
 import pytest
 
 from app import cli
-from app.apikeys import check_api_key
+from app.apikeys import lookup_api_key
 from app.db import connect
 from app.ingest import IngestResult, ingest_findings
 
@@ -96,7 +96,7 @@ def test_create_api_key_prints_only_the_token(
     token = capsys.readouterr().out.strip()
     assert " " not in token
     with closing(connect(db)) as conn:
-        assert check_api_key(conn, token, "ingest") is True
+        assert lookup_api_key(conn, token, "ingest") is not None
 
 
 def test_db_defaults_to_environment_variable(

@@ -46,10 +46,6 @@ def lookup_api_key(conn: sqlite3.Connection, token: str, scope: str) -> str | No
     return None if row is None else str(row[0])
 
 
-def check_api_key(conn: sqlite3.Connection, token: str, scope: str) -> bool:
-    return lookup_api_key(conn, token, scope) is not None
-
-
 def revoke_api_key(
     conn: sqlite3.Connection, key_id: str, now: datetime, actor: str = "system"
 ) -> None:

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import threading
 import uuid
 from dataclasses import dataclass
 from datetime import datetime
@@ -19,6 +20,8 @@ MAX_EMAIL = 254  # the login form's caps: no account may exist that cannot log i
 MAX_PASSWORD = 1024
 
 _hasher = PasswordHasher()  # argon2id with the library's current default cost
+# Each argon2 check uses 64 MiB; the request thread pool is ~40 wide. Cap how many run at once.
+_gate = threading.BoundedSemaphore(4)
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+")
 # Verified against when the email is unknown, so a missing account costs the same time.
 _DUMMY_HASH = _hasher.hash("not-a-real-password")
@@ -74,7 +77,8 @@ def authenticate(conn: sqlite3.Connection, email: str, password: str) -> User | 
         [email.strip().lower()],
     ).fetchone()
     try:
-        _hasher.verify(_DUMMY_HASH if row is None else row["password_hash"], password)
+        with _gate:
+            _hasher.verify(_DUMMY_HASH if row is None else row["password_hash"], password)
     except (VerificationError, InvalidHashError):
         return None
     if row is None:

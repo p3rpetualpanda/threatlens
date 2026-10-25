@@ -9,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from app.apikeys import check_api_key, create_api_key, revoke_api_key
+from app.apikeys import create_api_key, lookup_api_key, revoke_api_key
 from app.db import connect, migrate
 
 NOW = datetime(2026, 10, 25, 12, 0, tzinfo=UTC)
@@ -43,18 +43,18 @@ def test_only_a_hash_is_stored(conn: sqlite3.Connection) -> None:
 
 def test_fresh_key_is_accepted_for_ingest(conn: sqlite3.Connection) -> None:
     token = create_api_key(conn, "lab_a", NOW)
-    assert check_api_key(conn, token, "ingest") is True
+    assert lookup_api_key(conn, token, "ingest") is not None
 
 
 def test_other_scope_is_refused(conn: sqlite3.Connection) -> None:
     token = create_api_key(conn, "lab_a", NOW)
-    assert check_api_key(conn, token, "admin") is False
+    assert lookup_api_key(conn, token, "admin") is None
 
 
 def test_unknown_and_empty_tokens_are_refused(conn: sqlite3.Connection) -> None:
     create_api_key(conn, "lab_a", NOW)
-    assert check_api_key(conn, "not-a-real-token", "ingest") is False
-    assert check_api_key(conn, "", "ingest") is False
+    assert lookup_api_key(conn, "not-a-real-token", "ingest") is None
+    assert lookup_api_key(conn, "", "ingest") is None
 
 
 def test_revoked_key_is_refused_and_others_keep_working(conn: sqlite3.Connection) -> None:
@@ -62,8 +62,8 @@ def test_revoked_key_is_refused_and_others_keep_working(conn: sqlite3.Connection
     kept = create_api_key(conn, "new", NOW)
     key_id = conn.execute("SELECT id FROM api_keys WHERE name = 'old'").fetchone()["id"]
     revoke_api_key(conn, key_id, LATER)
-    assert check_api_key(conn, gone, "ingest") is False
-    assert check_api_key(conn, kept, "ingest") is True
+    assert lookup_api_key(conn, gone, "ingest") is None
+    assert lookup_api_key(conn, kept, "ingest") is not None
     row = conn.execute("SELECT revoked_at FROM api_keys WHERE id = ?", [key_id]).fetchone()
     assert row["revoked_at"] == LATER.isoformat()
 
@@ -87,4 +87,4 @@ def test_create_is_visible_to_a_second_connection(tmp_path: Path) -> None:
     with closing(connect(path)) as writer:
         token = create_api_key(writer, "k", NOW)
     with closing(connect(path)) as reader:
-        assert check_api_key(reader, token, "ingest") is True
+        assert lookup_api_key(reader, token, "ingest") is not None

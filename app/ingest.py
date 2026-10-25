@@ -74,6 +74,8 @@ def _upsert(conn: sqlite3.Connection, finding: dict[str, Any], stamp: str) -> tu
     """
     info = finding["finding_info"]
     unmapped = finding["unmapped"]
+    # A re-sent uid updates the beacon_status column only; raw_json keeps the first import. Read
+    # the status from the column, not from raw_json.
     existing = conn.execute(
         "UPDATE alerts SET beacon_status = ?, last_ingested_at = ? WHERE finding_info_uid = ? "
         "RETURNING environment",

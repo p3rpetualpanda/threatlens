@@ -375,3 +375,44 @@ def test_every_unsafe_method_needs_the_csrf_header(gated: TestClient, method: st
     csrf = str(_login(gated, "analyst")["csrf_token"])
     assert gated.request(method, "/work").status_code == 403
     assert gated.request(method, "/work", headers={"X-CSRF-Token": csrf}).status_code == 200
+
+
+def test_locked_database_in_the_session_check_is_503(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import sqlite3
+
+    def locked(*_: object) -> None:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr("app.auth.get_session", locked)
+    client.cookies.set(COOKIE, "anything")
+    r = client.get(ME)
+    assert r.status_code == 503
+    assert r.headers["retry-after"] == "5"
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_security_headers_also_on_401_422_and_429(client: TestClient) -> None:
+    for _ in range(5):
+        client.post(LOGIN, json={"email": "analyst@example.test", "password": "wrong one!"})
+    responses = [
+        client.get(ME),  # 401
+        client.post(LOGIN, json={}),  # 422
+        client.post(LOGIN, json={"email": "analyst@example.test", "password": PW}),  # 429
+    ]
+    assert [r.status_code for r in responses] == [401, 422, 429]
+    for r in responses:
+        assert r.headers["x-frame-options"] == "DENY"
+        assert "default-src" in r.headers["content-security-policy"]
+        assert r.headers["cache-control"] == "no-store"
+
+
+def test_two_attempts_failing_together_write_one_lock_row(client: TestClient, db: Path) -> None:
+    from app.lockout import keys_for, reserve, tipped_over
+
+    keys = keys_for("analyst@example.test", "198.51.100.7")
+    with closing(connect(db)) as conn:
+        ids = [reserve(conn, keys, NOW) for _ in range(5)]
+        flags = [tipped_over(conn, keys, i, NOW) for i in ids if i is not None]
+    assert flags == [False, False, False, False, True]

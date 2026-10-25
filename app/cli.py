@@ -13,6 +13,7 @@ from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import config
 from .apikeys import create_api_key
 from .audit import verify
 from .contract import validate_findings
@@ -25,7 +26,7 @@ MAX_SHOWN = 10
 
 
 def _default_db() -> Path:
-    return Path(os.environ.get("THREATLENS_DB_PATH", "data/threatlens.db"))
+    return Path(os.environ.get("THREATLENS_DB_PATH", config.DEFAULT_DB))
 
 
 def _read(path: Path) -> tuple[list[dict[str, object]], list[int]] | str:

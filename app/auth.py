@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 from . import config
 from .audit import record
 from .db import connect
-from .lockout import WINDOW, forgive, is_locked, keys_for, reserve
+from .lockout import WINDOW, forgive, keys_for, reserve, tipped_over
 from .sessions import ABSOLUTE_TIMEOUT, Session, create_session, delete_session, get_session
 from .users import ROLES, authenticate
 
@@ -84,7 +84,7 @@ def login(body: LoginBody, request: Request) -> JSONResponse:
             )
         user = authenticate(conn, body.email, body.password)
         if user is None:
-            if is_locked(conn, keys, now):  # this try was the last allowed one: audit it once
+            if tipped_over(conn, keys, attempt_ids, now):  # this try hit the limit: audit once
                 email = body.email.strip().lower()
                 record(conn, "anonymous", "login.locked", None, {"email": email, "ip": ip}, now)
                 conn.commit()
