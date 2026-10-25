@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fastapi import FastAPI
 
+from .api import router
 from .db import connect, migrate
 
 _DB_PATH = Path(os.environ.get("THREATLENS_DB_PATH", "data/threatlens.db"))
@@ -24,6 +25,9 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+app.include_router(router)
 
 
 @app.get("/health")
