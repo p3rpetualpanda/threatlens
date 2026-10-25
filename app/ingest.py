@@ -13,6 +13,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import Any, TypedDict
 
+from .audit import record
+
 _ENTITY_KINDS = {
     "hosts": "host",
     "users": "user",
@@ -29,7 +31,10 @@ class IngestResult(TypedDict):
 
 
 def ingest_findings(
-    conn: sqlite3.Connection, findings: list[dict[str, Any]], now: datetime
+    conn: sqlite3.Connection,
+    findings: list[dict[str, Any]],
+    now: datetime,
+    actor: str = "system",
 ) -> IngestResult:
     result: IngestResult = {"created": 0, "unchanged": 0, "incidents_touched": []}
     if not findings:
@@ -44,6 +49,8 @@ def ingest_findings(
             envs.add(env)
         for env in sorted(envs):
             _touch_environment(conn, env, stamp)
+        detail = {"created": result["created"], "unchanged": result["unchanged"]}
+        record(conn, actor, "findings.ingest", None, detail, now)
         conn.commit()
     except BaseException:
         conn.rollback()

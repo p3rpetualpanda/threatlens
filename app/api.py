@@ -13,7 +13,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from . import config
-from .apikeys import check_api_key
+from .apikeys import lookup_api_key
 from .contract import FindingError, validate_findings
 from .db import connect
 from .ingest import IngestResult, ingest_findings
@@ -35,14 +35,14 @@ def _busy(exc: sqlite3.OperationalError) -> Exception:
     return exc
 
 
-def _authorized(token: str) -> bool:
+def _authorized(token: str) -> str | None:
     with closing(connect(config.DB_PATH)) as conn:
-        return check_api_key(conn, token, "ingest")
+        return lookup_api_key(conn, token, "ingest")
 
 
-def _store(findings: list[dict[str, Any]]) -> IngestResult:
+def _store(findings: list[dict[str, Any]], key_id: str) -> IngestResult:
     with closing(connect(config.DB_PATH)) as conn:
-        return ingest_findings(conn, findings, datetime.now(UTC))
+        return ingest_findings(conn, findings, datetime.now(UTC), f"api_key:{key_id}")
 
 
 async def _read_body(request: Request) -> bytes:
@@ -77,10 +77,10 @@ async def post_findings(request: Request) -> JSONResponse:
     if len(parts) != 2 or parts[0].lower() != "bearer":
         raise _unauthorized()
     try:
-        known = await run_in_threadpool(_authorized, parts[1].strip())
+        key_id = await run_in_threadpool(_authorized, parts[1].strip())
     except sqlite3.OperationalError as exc:
         raise _busy(exc) from exc
-    if not known:
+    if key_id is None:
         raise _unauthorized()
 
     body = await _read_body(request)
@@ -92,6 +92,6 @@ async def post_findings(request: Request) -> JSONResponse:
             status_code=422,
         )
     try:
-        return JSONResponse(await run_in_threadpool(_store, findings))
+        return JSONResponse(await run_in_threadpool(_store, findings, key_id))
     except sqlite3.OperationalError as exc:
         raise _busy(exc) from exc

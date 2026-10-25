@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from .apikeys import create_api_key
+from .audit import verify
 from .contract import validate_findings
 from .db import connect, migrate
 from .ingest import ingest_findings
@@ -70,7 +71,9 @@ def _import(path: Path, db: Path) -> int:
         with closing(connect(db)) as conn:
             for start in range(0, len(findings), BATCH):
                 # Everything is validated, so only a database failure can stop between batches.
-                result = ingest_findings(conn, findings[start : start + BATCH], datetime.now(UTC))
+                result = ingest_findings(
+                    conn, findings[start : start + BATCH], datetime.now(UTC), "cli"
+                )
                 created += result["created"]
                 unchanged += result["unchanged"]
     except sqlite3.Error as exc:
@@ -88,7 +91,18 @@ def _import(path: Path, db: Path) -> int:
 def _create_api_key(name: str, db: Path) -> int:
     migrate(db)
     with closing(connect(db)) as conn:
-        print(create_api_key(conn, name, datetime.now(UTC)))
+        print(create_api_key(conn, name, datetime.now(UTC), "cli"))
+    return 0
+
+
+def _audit_verify(db: Path) -> int:
+    with closing(connect(db)) as conn:
+        bad = verify(conn)
+        if bad is not None:
+            print(f"audit chain broken at row {bad}", file=sys.stderr)
+            return 1
+        count = conn.execute("SELECT count(*) FROM audit_log").fetchone()[0]
+    print(f"audit chain ok ({count} rows)")
     return 0
 
 
@@ -99,12 +113,16 @@ def main(argv: Sequence[str] | None = None) -> int:
     imp.add_argument("file", type=Path)
     key = commands.add_parser("create-api-key", help="print a new ingest API key (shown once)")
     key.add_argument("name")
-    for sub in (imp, key):
+    audit = commands.add_parser("audit", help="audit log tools")
+    audit.add_argument("action", choices=["verify"])
+    for sub in (imp, key, audit):
         sub.add_argument("--db", type=Path, default=None, help="default: $THREATLENS_DB_PATH")
     args = parser.parse_args(argv)
     db = args.db or _default_db()
     if args.command == "import":
         return _import(args.file, db)
+    if args.command == "audit":
+        return _audit_verify(db)
     return _create_api_key(args.name, db)
 
 

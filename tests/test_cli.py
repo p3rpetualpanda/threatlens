@@ -124,10 +124,10 @@ def test_large_file_is_ingested_in_batches_of_1000(
     real = ingest_findings
 
     def spy(
-        conn: sqlite3.Connection, findings: list[dict[str, Any]], now: datetime
+        conn: sqlite3.Connection, findings: list[dict[str, Any]], now: datetime, actor: str
     ) -> IngestResult:
         sizes.append(len(findings))
-        return real(conn, findings, now)
+        return real(conn, findings, now, actor)
 
     monkeypatch.setattr("app.cli.ingest_findings", spy)
     db = tmp_path / "t.db"
@@ -199,13 +199,13 @@ def test_database_error_midway_reports_batches_kept(
     calls = 0
 
     def flaky(
-        conn: sqlite3.Connection, findings: list[dict[str, Any]], now: datetime
+        conn: sqlite3.Connection, findings: list[dict[str, Any]], now: datetime, actor: str
     ) -> IngestResult:
         nonlocal calls
         calls += 1
         if calls == 2:
             raise sqlite3.OperationalError("database is locked")
-        return real(conn, findings, now)
+        return real(conn, findings, now, actor)
 
     monkeypatch.setattr("app.cli.ingest_findings", flaky)
     db = tmp_path / "t.db"
