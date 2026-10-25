@@ -13,6 +13,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import app.main as main_mod
+from app import config
 from app.apikeys import create_api_key, revoke_api_key
 from app.db import connect
 
@@ -28,7 +29,7 @@ def _fixture() -> list[dict[str, Any]]:
 @pytest.fixture
 def api(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[TestClient, Path, str]]:
     db = tmp_path / "t.db"
-    monkeypatch.setattr(main_mod, "_DB_PATH", db)
+    monkeypatch.setattr(config, "DB_PATH", db)
     with TestClient(main_mod.app) as client:
         with closing(connect(db)) as conn:
             token = create_api_key(conn, "lab", NOW)
@@ -172,3 +173,41 @@ def test_chunked_body_over_10_mb_is_413(api: tuple[TestClient, Path, str]) -> No
     resp = client.post(URL, content=chunks(), headers=_auth(token))
     assert resp.status_code == 413
     assert _alerts(db) == 0
+
+
+def test_deeply_nested_json_is_422_not_500(api: tuple[TestClient, Path, str]) -> None:
+    client, _, token = api
+    resp = client.post(URL, content=b"[" * 1_000_000, headers=_auth(token))
+    assert resp.status_code == 422
+
+
+@pytest.mark.parametrize("header", ["Bearer", "Bearer ", "Token abc", "bearer"])
+def test_malformed_authorization_headers_are_401(
+    api: tuple[TestClient, Path, str], header: str
+) -> None:
+    client, _, _ = api
+    assert client.post(URL, json=[], headers={"Authorization": header}).status_code == 401
+
+
+def test_scheme_is_case_insensitive(api: tuple[TestClient, Path, str]) -> None:
+    client, _, token = api
+    resp = client.post(URL, json=[], headers={"Authorization": f"bearer {token}"})
+    assert resp.status_code == 200
+
+
+def test_key_with_another_scope_is_401(api: tuple[TestClient, Path, str]) -> None:
+    client, db, token = api
+    with closing(sqlite3.connect(db)) as conn:
+        conn.execute("UPDATE api_keys SET scope = 'admin'")
+        conn.commit()
+    assert client.post(URL, json=[], headers=_auth(token)).status_code == 401
+
+
+def test_api_module_imports_on_its_own() -> None:
+    import subprocess
+    import sys
+
+    done = subprocess.run(
+        [sys.executable, "-I", "-c", "import app.api"], capture_output=True, text=True, check=False
+    )
+    assert done.returncode == 0, done.stderr

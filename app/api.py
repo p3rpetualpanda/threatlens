@@ -11,9 +11,9 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import main
+from . import config
 from .apikeys import check_api_key
-from .contract import validate_findings
+from .contract import FindingError, validate_findings
 from .db import connect
 from .ingest import IngestResult, ingest_findings
 
@@ -29,18 +29,18 @@ def _unauthorized() -> HTTPException:
 
 
 def _authorized(token: str) -> bool:
-    with closing(connect(main._DB_PATH)) as conn:
+    with closing(connect(config.DB_PATH)) as conn:
         return check_api_key(conn, token, "ingest")
 
 
 def _store(findings: list[dict[str, Any]]) -> IngestResult:
-    with closing(connect(main._DB_PATH)) as conn:
+    with closing(connect(config.DB_PATH)) as conn:
         return ingest_findings(conn, findings, datetime.now(UTC))
 
 
 async def _read_body(request: Request) -> bytes:
     declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+    if declared.isascii() and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
         raise HTTPException(413, "request body is over 10 MB")
     chunks: list[bytes] = []
     size = 0
@@ -52,6 +52,18 @@ async def _read_body(request: Request) -> bytes:
     return b"".join(chunks)
 
 
+def _parse(body: bytes) -> tuple[list[dict[str, Any]], list[FindingError]]:
+    try:
+        findings = json.loads(body)
+    except (ValueError, RecursionError) as exc:  # bad JSON, bad UTF-8, nesting too deep
+        raise HTTPException(422, f"body is not valid JSON: {exc}") from exc
+    if not isinstance(findings, list):
+        raise HTTPException(422, "body must be a JSON list of findings")
+    if len(findings) > MAX_FINDINGS:
+        raise HTTPException(413, f"more than {MAX_FINDINGS} findings in one request")
+    return findings, validate_findings(findings)
+
+
 @router.post("/findings")
 async def post_findings(request: Request) -> JSONResponse:
     scheme, _, token = request.headers.get("authorization", "").partition(" ")
@@ -59,16 +71,8 @@ async def post_findings(request: Request) -> JSONResponse:
         raise _unauthorized()
 
     body = await _read_body(request)
-    try:
-        findings = json.loads(body)
-    except ValueError as exc:  # JSONDecodeError and UnicodeDecodeError
-        raise HTTPException(422, f"body is not valid JSON: {exc}") from exc
-    if not isinstance(findings, list):
-        raise HTTPException(422, "body must be a JSON list of findings")
-    if len(findings) > MAX_FINDINGS:
-        raise HTTPException(413, f"more than {MAX_FINDINGS} findings in one request")
-
-    errors = validate_findings(findings)
+    # Parsing 10 MB and validating 5,000 findings is CPU work: keep it off the event loop.
+    findings, errors = await run_in_threadpool(_parse, body)
     if errors:
         return JSONResponse(
             {"errors": [{"index": e.index, "path": e.path, "message": e.message} for e in errors]},
