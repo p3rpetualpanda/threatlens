@@ -1,4 +1,4 @@
-*text=auto
+* text=auto
 # Vendored contract and fixtures are hashed/compared byte-for-byte: keep LF on every OS.
 contracts/** text eol=lf
 tests/fixtures/** text eol=lf

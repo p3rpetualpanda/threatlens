@@ -150,3 +150,28 @@ def test_entity_lookups_use_indexes(tmp_path: Path) -> None:
         ):
             plan = " ".join(r[3] for r in conn.execute("EXPLAIN QUERY PLAN " + sql))
             assert "USING INDEX" in plan or "USING COVERING INDEX" in plan
+
+
+def test_migrate_survives_another_process_applying_it_first(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    d = tmp_path / "m"
+    d.mkdir()
+    (d / "1_a.sql").write_text("CREATE TABLE t1 (id TEXT);", encoding="utf-8")
+    db = tmp_path / "t.db"
+    real_connect = sqlite3.connect
+
+    class Racing(sqlite3.Connection):
+        raced = False
+
+        def executescript(self, sql_script: str, /) -> sqlite3.Cursor:
+            if not Racing.raced:  # a second process applies the same migration first
+                Racing.raced = True
+                with closing(real_connect(db)) as other:
+                    other.executescript(sql_script)
+            return super().executescript(sql_script)
+
+    monkeypatch.setattr(
+        "app.db.sqlite3.connect", lambda path, **kw: real_connect(path, factory=Racing, **kw)
+    )
+    assert migrate(db, migrations_dir=d) == 1

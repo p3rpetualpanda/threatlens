@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import sqlite3
 import sys
 from collections.abc import Sequence
 from contextlib import closing
@@ -27,17 +28,18 @@ def _default_db() -> Path:
 def _read(path: Path) -> tuple[list[dict[str, object]], list[int]] | str:
     """Parse the whole file first; return (findings, their line numbers) or an error message."""
     try:
-        text = path.read_text(encoding="utf-8")
+        text = path.read_text(encoding="utf-8-sig")  # PowerShell writes a BOM
     except (OSError, UnicodeDecodeError) as exc:
         return f"cannot read {path}: {exc}"
     findings: list[dict[str, object]] = []
     lines: list[int] = []
-    for number, line in enumerate(text.splitlines(), start=1):
+    # Split on \n only: splitlines() also cuts at U+2028/U+0085, legal inside JSON strings.
+    for number, line in enumerate(text.split("\n"), start=1):
         if not line.strip():
             continue
         try:
             item = json.loads(line)
-        except ValueError as exc:
+        except (ValueError, RecursionError) as exc:
             return f"{path} line {number}: not valid JSON: {exc}"
         findings.append(item)
         lines.append(number)
@@ -64,12 +66,21 @@ def _import(path: Path, db: Path) -> int:
 
     migrate(db)
     created = unchanged = 0
-    with closing(connect(db)) as conn:
-        for start in range(0, len(findings), BATCH):
-            # Everything is validated, so only a database failure can stop between batches.
-            result = ingest_findings(conn, findings[start : start + BATCH], datetime.now(UTC))
-            created += result["created"]
-            unchanged += result["unchanged"]
+    try:
+        with closing(connect(db)) as conn:
+            for start in range(0, len(findings), BATCH):
+                # Everything is validated, so only a database failure can stop between batches.
+                result = ingest_findings(conn, findings[start : start + BATCH], datetime.now(UTC))
+                created += result["created"]
+                unchanged += result["unchanged"]
+    except sqlite3.Error as exc:
+        print(f"database error: {exc}", file=sys.stderr)
+        print(
+            f"{created + unchanged} findings were already stored; run the import again to "
+            "finish (it is safe to repeat)",
+            file=sys.stderr,
+        )
+        return 1
     print(f"imported {len(findings)} findings: created {created}, unchanged {unchanged}")
     return 0
 

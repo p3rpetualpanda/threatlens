@@ -6,6 +6,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from app.contract import FindingError, validate_findings
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -65,3 +67,24 @@ def test_time_beyond_year_9999_is_rejected() -> None:
     finding["time"] = 10**17  # passes the schema, but no datetime can hold it
     errors = validate_findings([finding])
     assert [(e.index, e.path) for e in errors] == [(0, "time")]
+
+
+@pytest.mark.parametrize("time", [1e300, 1e19, 253_402_300_800_000.0])
+def test_float_time_beyond_year_9999_is_rejected(time: float) -> None:
+    finding = _fixture()[0]
+    finding["time"] = time
+    assert [(e.index, e.path) for e in validate_findings([finding])] == [(0, "time")]
+
+
+def test_time_limit_is_inclusive() -> None:
+    last, over = _fixture()[0], _fixture()[1]
+    last["time"] = 253_402_300_799_999
+    over["time"] = 253_402_300_800_000
+    assert [(e.index, e.path) for e in validate_findings([last, over])] == [(1, "time")]
+
+
+def test_long_error_messages_are_truncated() -> None:
+    finding = _fixture()[0]
+    finding["severity"] = "x" * 5000
+    (error,) = [e for e in validate_findings([finding]) if e.path == "severity"]
+    assert len(error.message) <= 203

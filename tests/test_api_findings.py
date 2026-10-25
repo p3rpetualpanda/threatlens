@@ -211,3 +211,54 @@ def test_api_module_imports_on_its_own() -> None:
         [sys.executable, "-I", "-c", "import app.api"], capture_output=True, text=True, check=False
     )
     assert done.returncode == 0, done.stderr
+
+
+def test_5000_findings_exactly_is_accepted(api: tuple[TestClient, Path, str]) -> None:
+    client, db, token = api
+    base = _fixture()[0]
+    items = []
+    for n in range(5000):
+        item = copy.deepcopy(base)
+        item["finding_info"]["uid"] = f"00000000-0000-4000-8000-{n:012d}"
+        items.append(item)
+    resp = client.post(URL, json=items, headers=_auth(token))
+    assert resp.status_code == 200
+    assert resp.json()["created"] == 5000
+    assert _alerts(db) == 5000
+
+
+def test_store_failure_is_5xx_and_leaves_no_rows(
+    api: tuple[TestClient, Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _, db, token = api
+    from app import ingest
+
+    def boom(*_: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ingest, "_insert_entities", boom)
+    quiet = TestClient(main_mod.app, raise_server_exceptions=False)
+    resp = quiet.post(URL, json=_fixture(), headers=_auth(token))
+    assert resp.status_code == 500
+    assert _alerts(db) == 0
+
+
+def test_locked_database_is_503_with_retry_after(
+    api: tuple[TestClient, Path, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client, db, token = api
+
+    def locked(_: object) -> None:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr("app.api.ingest_findings", lambda *a: locked(a))
+    resp = client.post(URL, json=_fixture(), headers=_auth(token))
+    assert resp.status_code == 503
+    assert resp.headers["retry-after"] == "5"
+    assert _alerts(db) == 0
+
+
+def test_extra_spaces_after_bearer_are_tolerated(api: tuple[TestClient, Path, str]) -> None:
+    client, _, token = api
+    resp = client.post(URL, json=[], headers={"Authorization": f"Bearer   {token}"})
+    assert resp.status_code == 200

@@ -16,7 +16,7 @@ def _num(path: Path) -> int:
 
 
 def connect(db_path: Path) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
+    conn = sqlite3.connect(db_path, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA foreign_keys=ON")
     conn.row_factory = sqlite3.Row
@@ -46,5 +46,10 @@ def migrate(db_path: Path, migrations_dir: Path | None = None) -> int:
             # One transaction (SQLite DDL and user_version are transactional): a failure part
             # way leaves no half-applied schema; closing the connection rolls it back.
             body = path.read_text(encoding="utf-8")
-            conn.executescript(f"BEGIN;\n{body}\nPRAGMA user_version={num};\nCOMMIT;")  # nosec
+            try:
+                conn.executescript(f"BEGIN;\n{body}\nPRAGMA user_version={num};\nCOMMIT;")  # nosec
+            except sqlite3.OperationalError:
+                # Another process may have applied this one first (server start vs CLI).
+                if int(conn.execute("PRAGMA user_version").fetchone()[0]) < num:
+                    raise
         return int(conn.execute("PRAGMA user_version").fetchone()[0])

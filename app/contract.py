@@ -12,6 +12,11 @@ _SCHEMA = Path(__file__).resolve().parent.parent / "contracts" / "detection-find
 _MAX_EPOCH_MS = 253_402_300_799_999  # 9999-12-31T23:59:59.999Z
 
 
+def _short(message: str) -> str:
+    # jsonschema messages echo the offending value; cap them so a big value is not sent back.
+    return message if len(message) <= 200 else message[:200] + "..."
+
+
 @dataclass(frozen=True)
 class FindingError:
     index: int
@@ -36,9 +41,10 @@ def validate_findings(findings: list[object]) -> list[FindingError]:
     for index, item in enumerate(findings):
         for err in sorted(validator.iter_errors(item), key=lambda e: list(e.absolute_path)):
             path = ".".join(str(p) for p in err.absolute_path)
-            errors.append(FindingError(index, path, err.message))
+            errors.append(FindingError(index, path, _short(err.message)))
         # The schema allows any integer; ingest turns `time` into a date, which stops at 9999.
         time = item.get("time") if isinstance(item, dict) else None
-        if isinstance(time, int) and time > _MAX_EPOCH_MS:
+        # JSON 1e19 is a float that the schema's `integer` also accepts.
+        if isinstance(time, int | float) and time > _MAX_EPOCH_MS:
             errors.append(FindingError(index, "time", f"{time} is beyond year 9999"))
     return errors

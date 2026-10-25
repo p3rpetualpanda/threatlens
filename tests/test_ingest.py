@@ -199,3 +199,21 @@ def test_open_transaction_is_refused_and_left_alone(conn: sqlite3.Connection) ->
         ingest_findings(conn, _fixture(), NOW)
     assert conn.in_transaction  # the caller's transaction is untouched
     assert _count(conn, "alerts") == 0
+
+
+def test_entity_kinds_match_their_source_lists(conn: sqlite3.Connection) -> None:
+    ingest_findings(conn, _fixture(), NOW)
+    got = {
+        (r["rule"], r["kind"], r["value"])
+        for r in conn.execute(
+            "SELECT a.rule, e.kind, e.value FROM alert_entities e "
+            "JOIN alerts a ON a.id = e.alert_id"
+        )
+    }
+    for item in _fixture():
+        rule = item["finding_info"]["analytic"]["uid"]
+        ents = item["unmapped"]["entities"]
+        for key, kind in ingest._ENTITY_KINDS.items():
+            assert {v for (r, k, v) in got if r == rule and k == kind} == set(ents[key])
+    assert any(k == "src_ip" for _, k, _ in got)
+    assert any(k == "dst_ip" for _, k, _ in got)

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 from contextlib import closing
 from datetime import UTC, datetime
 from typing import Any
@@ -26,6 +27,12 @@ router = APIRouter(prefix="/api/v1")
 def _unauthorized() -> HTTPException:
     # One response for a missing, malformed, unknown, revoked or wrong-scope key.
     return HTTPException(401, "invalid or missing API key", headers={"WWW-Authenticate": "Bearer"})
+
+
+def _busy(exc: sqlite3.OperationalError) -> Exception:
+    if "locked" in str(exc) or "busy" in str(exc):
+        return HTTPException(503, "database is busy, retry", headers={"Retry-After": "5"})
+    return exc
 
 
 def _authorized(token: str) -> bool:
@@ -66,8 +73,14 @@ def _parse(body: bytes) -> tuple[list[dict[str, Any]], list[FindingError]]:
 
 @router.post("/findings")
 async def post_findings(request: Request) -> JSONResponse:
-    scheme, _, token = request.headers.get("authorization", "").partition(" ")
-    if scheme.lower() != "bearer" or not token or not await run_in_threadpool(_authorized, token):
+    parts = request.headers.get("authorization", "").split(None, 1)
+    if len(parts) != 2 or parts[0].lower() != "bearer":
+        raise _unauthorized()
+    try:
+        known = await run_in_threadpool(_authorized, parts[1].strip())
+    except sqlite3.OperationalError as exc:
+        raise _busy(exc) from exc
+    if not known:
         raise _unauthorized()
 
     body = await _read_body(request)
@@ -78,4 +91,7 @@ async def post_findings(request: Request) -> JSONResponse:
             {"errors": [{"index": e.index, "path": e.path, "message": e.message} for e in errors]},
             status_code=422,
         )
-    return JSONResponse(await run_in_threadpool(_store, findings))
+    try:
+        return JSONResponse(await run_in_threadpool(_store, findings))
+    except sqlite3.OperationalError as exc:
+        raise _busy(exc) from exc
