@@ -191,3 +191,11 @@ def test_hostile_strings_are_stored_verbatim(conn: sqlite3.Connection) -> None:
     assert "<script>alert(1)</script>" in json.loads(raw)["finding_info"]["title"]
     value = conn.execute("SELECT value FROM alert_entities WHERE value LIKE '<b>%'").fetchone()[0]
     assert value == "<b>x</b>"
+
+
+def test_open_transaction_is_refused_and_left_alone(conn: sqlite3.Connection) -> None:
+    conn.execute("INSERT INTO environments (id, name) VALUES ('e', 'mine')")
+    with pytest.raises(sqlite3.OperationalError, match="within a transaction"):
+        ingest_findings(conn, _fixture(), NOW)
+    assert conn.in_transaction  # the caller's transaction is untouched
+    assert _count(conn, "alerts") == 0

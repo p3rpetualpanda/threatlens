@@ -11,7 +11,7 @@ from app.db import _ordered, connect, migrate
 
 def test_migrate_creates_schema_and_version(tmp_path: Path) -> None:
     db = tmp_path / "t.db"
-    assert migrate(db) == 1
+    assert migrate(db) == 2
     with closing(connect(db)) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for expected in (
@@ -35,7 +35,7 @@ def test_migrate_creates_schema_and_version(tmp_path: Path) -> None:
 def test_migrate_is_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "t.db"
     migrate(db)
-    assert migrate(db) == 1  # second run applies nothing, no error
+    assert migrate(db) == 2  # second run applies nothing, no error
 
 
 def test_orders_migrations_numerically(tmp_path: Path) -> None:
@@ -138,3 +138,15 @@ def test_half_applied_migration_is_rolled_back(tmp_path: Path) -> None:
     with closing(connect(db)) as conn:
         tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     assert "t1" not in tables
+
+
+def test_entity_lookups_use_indexes(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    migrate(db)
+    with closing(connect(db)) as conn:
+        for sql in (
+            "SELECT * FROM alert_entities WHERE alert_id = 'x'",
+            "SELECT * FROM alert_entities WHERE kind = 'host' AND value = 'x'",
+        ):
+            plan = " ".join(r[3] for r in conn.execute("EXPLAIN QUERY PLAN " + sql))
+            assert "USING INDEX" in plan or "USING COVERING INDEX" in plan
