@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from app import cli
+from app import cli, users
 from app.audit import verify
 from app.db import connect, migrate
 from app.users import MIN_PASSWORD, ROLES, authenticate, create_user
@@ -140,3 +140,52 @@ def test_audit_failure_rolls_back_the_user(
     with pytest.raises(RuntimeError):
         create_user(conn, "a@example.test", PW, "viewer", NOW)
     assert conn.execute("SELECT count(*) FROM users").fetchone()[0] == 0
+
+
+def test_lengths_the_login_form_would_refuse_are_refused_here_too(conn: sqlite3.Connection) -> None:
+    with pytest.raises(ValueError, match="email"):
+        create_user(conn, "a" * 250 + "@e.test", PW, "viewer", NOW)
+    with pytest.raises(ValueError, match="at most"):
+        create_user(conn, "a@example.test", "x" * 1025, "viewer", NOW)
+
+
+def test_unknown_and_known_emails_both_pay_for_one_argon2_verify(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    create_user(conn, "a@example.test", PW, "viewer", NOW)
+    calls: list[str] = []
+    real = users._hasher
+
+    class Spy:
+        def verify(self, stored: str, password: str) -> bool:
+            calls.append(stored)
+            return real.verify(stored, password)
+
+    monkeypatch.setattr(users, "_hasher", Spy())
+    authenticate(conn, "a@example.test", "wrong password here")
+    authenticate(conn, "nobody@example.test", PW)
+    assert len(calls) == 2
+
+
+def test_an_audit_error_is_not_reported_as_a_duplicate_email(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*_: object) -> None:
+        raise sqlite3.IntegrityError("from the audit table")
+
+    monkeypatch.setattr("app.users.record", boom)
+    with pytest.raises(sqlite3.IntegrityError):
+        create_user(conn, "a@example.test", PW, "viewer", NOW)
+
+
+def test_cli_create_admin_on_a_locked_database_exits_1(
+    db: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    monkeypatch.setenv("THREATLENS_ADMIN_PASSWORD", PW)
+
+    def locked(*_: object) -> None:
+        raise sqlite3.OperationalError("database is locked")
+
+    monkeypatch.setattr("app.cli.create_user", locked)
+    assert cli.main(["create-admin", "root@example.test", "--db", str(db)]) == 1
+    assert "locked" in capsys.readouterr().err

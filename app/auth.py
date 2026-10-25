@@ -19,8 +19,8 @@ from pydantic import BaseModel, Field
 from . import config
 from .audit import record
 from .db import connect
-from .lockout import WINDOW, clear, is_locked, keys_for, record_failure
-from .sessions import IDLE_TIMEOUT, Session, create_session, delete_session, get_session
+from .lockout import WINDOW, forgive, is_locked, keys_for, reserve
+from .sessions import ABSOLUTE_TIMEOUT, Session, create_session, delete_session, get_session
 from .users import ROLES, authenticate
 
 COOKIE = "tl_session"
@@ -53,7 +53,8 @@ def require_role(minimum: str) -> Callable[[Request], Session]:
             raise HTTPException(403, "your role cannot do this")
         if request.method not in _SAFE_METHODS:
             sent = request.headers.get(CSRF_HEADER, "").encode()
-            if not secrets.compare_digest(sent, session.csrf_token.encode()):
+            # An empty stored token (pre-migration row) must never match a missing header.
+            if not sent or not secrets.compare_digest(sent, session.csrf_token.encode()):
                 raise HTTPException(403, "missing or wrong CSRF token")
         return session
 
@@ -74,7 +75,8 @@ def login(body: LoginBody, request: Request) -> JSONResponse:
     ip = request.client.host if request.client else "unknown"
     keys = keys_for(body.email, ip)
     with closing(connect(config.DB_PATH)) as conn:
-        if is_locked(conn, keys, now):
+        attempt_ids = reserve(conn, keys, now)  # counts this try before the slow password check
+        if attempt_ids is None:
             raise HTTPException(
                 429,
                 "too many failed logins, try again later",
@@ -82,21 +84,20 @@ def login(body: LoginBody, request: Request) -> JSONResponse:
             )
         user = authenticate(conn, body.email, body.password)
         if user is None:
-            record_failure(conn, keys, now)
-            if is_locked(conn, keys, now):  # audit the lock once, not every refused attempt
+            if is_locked(conn, keys, now):  # this try was the last allowed one: audit it once
                 email = body.email.strip().lower()
                 record(conn, "anonymous", "login.locked", None, {"email": email, "ip": ip}, now)
                 conn.commit()
             raise HTTPException(401, "invalid email or password")
-        clear(conn, keys[0])  # the username only: a good login must not reset the IP's count
-        token, csrf = create_session(conn, user.id, now)  # always new: no session fixation
+        forgive(conn, keys[0], attempt_ids)
+        token, csrf = create_session(conn, user.id, now, commit=False)  # new: no fixation
         record(conn, user.email, "login.success", user.id, {"ip": ip}, now)
         conn.commit()
     response = JSONResponse(_session_json(Session(user, csrf)))
     response.set_cookie(
         COOKIE,
         token,
-        max_age=int(IDLE_TIMEOUT.total_seconds()),
+        max_age=int(ABSOLUTE_TIMEOUT.total_seconds()),
         httponly=True,
         samesite="strict",
         secure=request.url.hostname not in _LOCAL_HOSTS,
@@ -108,7 +109,7 @@ def login(body: LoginBody, request: Request) -> JSONResponse:
 @router.post("/logout", status_code=204)
 def logout(request: Request, session: Session = Depends(require_role("viewer"))) -> Response:  # noqa: B008
     with closing(connect(config.DB_PATH)) as conn:
-        delete_session(conn, request.cookies[COOKIE])
+        delete_session(conn, request.cookies[COOKIE], commit=False)
         record(conn, session.user.email, "logout", session.user.id, None, datetime.now(UTC))
         conn.commit()
     response = Response(status_code=204)

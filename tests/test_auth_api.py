@@ -11,10 +11,11 @@ from fastapi.testclient import TestClient
 
 import app.main as main_mod
 from app import config
+from app.apikeys import create_api_key, lookup_api_key
 from app.audit import verify
 from app.auth import COOKIE, require_role, router
 from app.db import connect, migrate
-from app.sessions import Session
+from app.sessions import ABSOLUTE_TIMEOUT, Session
 from app.users import ROLES, create_user
 
 NOW = datetime(2026, 10, 25, 12, 0, tzinfo=UTC)
@@ -61,6 +62,7 @@ def test_login_returns_user_and_csrf_and_a_safe_cookie(client: TestClient) -> No
     assert "httponly" in cookie
     assert "samesite=strict" in cookie
     assert "path=/" in cookie
+    assert f"max-age={int(ABSOLUTE_TIMEOUT.total_seconds())}" in cookie
     assert "secure" not in cookie  # plain http on localhost
 
 
@@ -81,7 +83,12 @@ def test_wrong_password_and_unknown_user_look_identical(client: TestClient) -> N
 
 @pytest.mark.parametrize(
     "body",
-    [{}, {"email": "a@example.test"}, {"email": "a@example.test", "password": "x" * 1025}],
+    [
+        {},
+        {"email": "a@example.test"},
+        {"email": "a@example.test", "password": "x" * 1025},
+        {"email": "x" * 250 + "@e.test", "password": PW},
+    ],
 )
 def test_login_rejects_malformed_bodies(client: TestClient, body: dict[str, str]) -> None:
     assert client.post(LOGIN, json=body).status_code == 422
@@ -216,6 +223,18 @@ def gated(db: Path) -> Iterator[TestClient]:
     def work(_: Session = Depends(require_role("analyst"))) -> dict[str, str]:  # noqa: B008
         return {"ok": "work"}
 
+    @mini.put("/work")
+    def put(_: Session = Depends(require_role("analyst"))) -> dict[str, str]:  # noqa: B008
+        return {"ok": "put"}
+
+    @mini.patch("/work")
+    def patch(_: Session = Depends(require_role("analyst"))) -> dict[str, str]:  # noqa: B008
+        return {"ok": "patch"}
+
+    @mini.delete("/work")
+    def delete(_: Session = Depends(require_role("analyst"))) -> dict[str, str]:  # noqa: B008
+        return {"ok": "delete"}
+
     @mini.post("/admin")
     def admin(_: Session = Depends(require_role("admin"))) -> dict[str, str]:  # noqa: B008
         return {"ok": "admin"}
@@ -254,3 +273,105 @@ def test_anonymous_is_401_and_missing_csrf_is_403(gated: TestClient) -> None:
 def test_an_unknown_role_name_is_a_programming_error() -> None:
     with pytest.raises(ValueError, match="role"):
         require_role("root")
+
+
+def test_oversized_login_body_is_refused_before_it_is_parsed(client: TestClient) -> None:
+    r = client.post(
+        LOGIN, content=b"{" + b" " * 5000 + b"}", headers={"content-type": "application/json"}
+    )
+    assert r.status_code == 413
+    assert r.headers["x-content-type-options"] == "nosniff"
+
+
+def test_four_failures_then_the_right_password_still_logs_in(client: TestClient) -> None:
+    for _ in range(4):
+        client.post(LOGIN, json={"email": "analyst@example.test", "password": "wrong one!"})
+    assert (
+        client.post(LOGIN, json={"email": "analyst@example.test", "password": PW}).status_code
+        == 200
+    )
+
+
+def test_ip_lock_applies_across_usernames(client: TestClient) -> None:
+    for i in range(5):
+        client.post(LOGIN, json={"email": f"ghost{i}@example.test", "password": "wrong one!"})
+    assert (
+        client.post(LOGIN, json={"email": "analyst@example.test", "password": PW}).status_code
+        == 429
+    )
+
+
+def test_a_refused_attempt_does_not_extend_the_lock_or_audit_again(
+    client: TestClient, db: Path
+) -> None:
+    for _ in range(5):
+        client.post(LOGIN, json={"email": "analyst@example.test", "password": "wrong one!"})
+    for _ in range(2):
+        assert (
+            client.post(LOGIN, json={"email": "analyst@example.test", "password": PW}).status_code
+            == 429
+        )
+    with closing(connect(db)) as conn:
+        assert conn.execute("SELECT count(*) FROM login_attempts").fetchone()[0] == 10
+        assert (
+            conn.execute("SELECT count(*) FROM audit_log WHERE action='login.locked'").fetchone()[0]
+            == 1
+        )
+
+
+def test_logout_is_audited_and_clears_the_cookie(client: TestClient, db: Path) -> None:
+    csrf = str(_login(client)["csrf_token"])
+    resp = client.post(LOGOUT, headers={"X-CSRF-Token": csrf})
+    assert resp.status_code == 204
+    assert (
+        f"{COOKIE}=" in resp.headers["set-cookie"]
+        and "max-age=0" in resp.headers["set-cookie"].lower()
+    )
+    with closing(connect(db)) as conn:
+        row = conn.execute("SELECT actor FROM audit_log WHERE action = 'logout'").fetchone()
+        assert row["actor"] == "analyst@example.test"
+        dump = " ".join(str(tuple(r)) for r in conn.execute("SELECT * FROM audit_log"))
+        assert csrf not in dump and verify(conn) is None
+
+
+def test_a_session_row_with_an_empty_csrf_token_cannot_post_without_a_header(
+    client: TestClient, db: Path
+) -> None:
+    _login(client)
+    with closing(connect(db)) as conn:
+        conn.execute("UPDATE sessions SET csrf_token = ''")
+        conn.commit()
+    assert client.get(ME).status_code == 200
+    assert client.post(LOGOUT).status_code == 403
+
+
+def test_an_expired_session_is_401_through_the_api(client: TestClient, db: Path) -> None:
+    _login(client)
+    with closing(connect(db)) as conn:
+        conn.execute("UPDATE sessions SET expires_at = '2000-01-01T00:00:00+00:00'")
+        conn.commit()
+    assert client.get(ME).status_code == 401
+
+
+def test_http_ingest_is_audited_under_the_key_id(client: TestClient, db: Path) -> None:
+    import json
+
+    fixture = Path(__file__).resolve().parent / "fixtures" / "findings.jsonl"
+    findings = [json.loads(line) for line in fixture.read_text("utf-8").splitlines()]
+    with closing(connect(db)) as conn:
+        token = create_api_key(conn, "lab", NOW)
+        key_id = lookup_api_key(conn, token, "ingest")
+    r = client.post("/api/v1/findings", json=findings, headers={"Authorization": f"Bearer {token}"})
+    assert r.status_code == 200, r.text
+    with closing(connect(db)) as conn:
+        row = conn.execute(
+            "SELECT actor FROM audit_log WHERE action = 'findings.ingest'"
+        ).fetchone()
+    assert row["actor"] == f"api_key:{key_id}"
+
+
+@pytest.mark.parametrize("method", ["PUT", "PATCH", "DELETE", "POST"])
+def test_every_unsafe_method_needs_the_csrf_header(gated: TestClient, method: str) -> None:
+    csrf = str(_login(gated, "analyst")["csrf_token"])
+    assert gated.request(method, "/work").status_code == 403
+    assert gated.request(method, "/work", headers={"X-CSRF-Token": csrf}).status_code == 200

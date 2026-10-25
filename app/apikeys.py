@@ -24,12 +24,16 @@ def create_api_key(
 ) -> str:
     token = secrets.token_urlsafe(32)
     key_id = str(uuid.uuid4())
-    conn.execute(
-        "INSERT INTO api_keys (id, name, token_hash, scope, created_at) VALUES (?, ?, ?, ?, ?)",
-        [key_id, name, _hash(token), "ingest", now.isoformat()],
-    )
-    record(conn, actor, "api_key.create", key_id, {"name": name, "scope": "ingest"}, now)
-    conn.commit()
+    try:
+        conn.execute(
+            "INSERT INTO api_keys (id, name, token_hash, scope, created_at) VALUES (?, ?, ?, ?, ?)",
+            [key_id, name, _hash(token), "ingest", now.isoformat()],
+        )
+        record(conn, actor, "api_key.create", key_id, {"name": name, "scope": "ingest"}, now)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
     return token
 
 
@@ -52,9 +56,14 @@ def revoke_api_key(
     """Revoke a key; a second revoke keeps the first time. Unknown id raises KeyError."""
     if conn.execute("SELECT 1 FROM api_keys WHERE id = ?", [key_id]).fetchone() is None:
         raise KeyError(key_id)
-    conn.execute(
-        "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
-        [now.isoformat(), key_id],
-    )
-    record(conn, actor, "api_key.revoke", key_id, None, now)
-    conn.commit()
+    try:
+        changed = conn.execute(
+            "UPDATE api_keys SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL",
+            [now.isoformat(), key_id],
+        ).rowcount
+        if changed:  # a repeat revoke changes nothing, so it leaves no audit row
+            record(conn, actor, "api_key.revoke", key_id, None, now)
+        conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise

@@ -2,8 +2,10 @@
 
 Each row stores `hash = sha256(prev_hash + canonical_json(row))`, so editing or deleting any row
 other than the newest breaks the chain from that point on. `verify` recomputes it.
-shortcut: cutting rows off the tail is not detectable from the log alone; keep an offsite copy
-of the latest hash if that matters.
+shortcut: the hash has no secret and nothing blocks UPDATE or DELETE, so this only catches
+accidental or naive edits. Someone who can write the database file can rewrite rows and
+recompute every later hash, or cut rows off the tail, and `verify` stays quiet. Upgrade to an
+HMAC with a key kept outside the database, plus an offsite copy of the latest hash.
 """
 
 from __future__ import annotations

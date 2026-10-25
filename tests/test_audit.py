@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from datetime import UTC, datetime
 from pathlib import Path
@@ -51,12 +52,19 @@ def test_rows_are_chained_and_verify(conn: sqlite3.Connection) -> None:
     assert verify(conn) is None
 
 
-@pytest.mark.parametrize("column", ["at", "actor", "action", "target", "detail"])
+@pytest.mark.parametrize("column", ["at", "actor", "action", "target", "detail", "prev_hash"])
 def test_editing_any_field_is_detected(conn: sqlite3.Connection, column: str) -> None:
     _fill(conn)
     conn.execute(f"UPDATE audit_log SET {column} = 'tampered' WHERE id = 2")  # noqa: S608
     conn.commit()
     assert verify(conn) == 2
+
+
+def test_renumbering_a_row_is_detected(conn: sqlite3.Connection) -> None:
+    _fill(conn)
+    conn.execute("UPDATE audit_log SET id = 99 WHERE id = 3")
+    conn.commit()
+    assert verify(conn) == 99
 
 
 def test_deleting_a_middle_row_is_detected(conn: sqlite3.Connection) -> None:
@@ -102,6 +110,31 @@ def test_api_key_create_and_revoke_are_audited(conn: sqlite3.Connection) -> None
     assert all(r["target"] == key_id for r in rows)
     assert token not in "".join(str(tuple(r)) for r in rows)  # the secret is never logged
     assert verify(conn) is None
+
+
+def test_a_repeat_revoke_writes_no_second_audit_row(conn: sqlite3.Connection) -> None:
+    token = create_api_key(conn, "lab", NOW)
+    key_id = lookup_api_key(conn, token, "ingest")
+    assert key_id is not None
+    revoke_api_key(conn, key_id, NOW)
+    revoke_api_key(conn, key_id, NOW)
+    actions = [r[0] for r in conn.execute("SELECT action FROM audit_log ORDER BY id")]
+    assert actions == ["api_key.create", "api_key.revoke"]
+
+
+def test_parallel_writers_keep_one_unbroken_chain(db: Path) -> None:
+    def work(worker: int) -> None:
+        with closing(connect(db)) as c:
+            for i in range(10):
+                record(c, f"w{worker}", "thing.done", str(i), None, NOW)
+                c.commit()
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        list(pool.map(work, range(4)))
+    with closing(connect(db)) as c:
+        ids = [r[0] for r in c.execute("SELECT id FROM audit_log ORDER BY id")]
+        assert ids == list(range(1, 41))
+        assert verify(c) is None
 
 
 def test_lookup_api_key_wrong_scope_or_revoked(conn: sqlite3.Connection) -> None:
@@ -157,4 +190,13 @@ def test_cli_import_and_create_key_are_audited(db: Path, conn: sqlite3.Connectio
     assert cli.main(["create-api-key", "lab", "--db", str(db)]) == 0
     actions = [r[0] for r in conn.execute("SELECT action FROM audit_log ORDER BY id")]
     assert actions == ["findings.ingest", "api_key.create"]
-    assert conn.execute("SELECT DISTINCT actor FROM audit_log").fetchall()[0][0] == "cli"
+    assert {r[0] for r in conn.execute("SELECT actor FROM audit_log")} == {"cli"}
+
+
+def test_cli_verify_on_a_missing_database_exits_1_and_creates_nothing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    missing = tmp_path / "typo.db"
+    assert cli.main(["audit", "verify", "--db", str(missing)]) == 1
+    assert "no database" in capsys.readouterr().err
+    assert not missing.exists()

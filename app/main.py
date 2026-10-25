@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import sqlite3
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from contextlib import asynccontextmanager, closing
@@ -14,6 +15,9 @@ from .db import connect, migrate
 
 _CSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 _NO_CSP_PATHS = {"/docs", "/redoc"}  # Swagger UI and ReDoc load scripts from a CDN
+_LOGIN_PATH = "/api/v1/login"
+_MAX_LOGIN_BYTES = 4096
+_log = logging.getLogger(__name__)
 
 
 @asynccontextmanager
@@ -34,7 +38,13 @@ app = FastAPI(
 async def security_headers(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
-    response = await call_next(request)
+    # shortcut: trusts Content-Length, so a chunked body skips this cap; put a body limit on the
+    # reverse proxy before exposing the login route.
+    declared = request.headers.get("content-length", "")
+    if request.url.path == _LOGIN_PATH and declared.isdigit() and int(declared) > _MAX_LOGIN_BYTES:
+        response: Response = JSONResponse({"detail": "request body too large"}, status_code=413)
+    else:
+        response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
     response.headers["Referrer-Policy"] = "no-referrer"
@@ -47,11 +57,12 @@ async def security_headers(
 
 
 @app.exception_handler(sqlite3.OperationalError)
-async def database_busy(_: Request, exc: sqlite3.OperationalError) -> JSONResponse:
+async def database_busy(request: Request, exc: sqlite3.OperationalError) -> JSONResponse:
     if "locked" in str(exc) or "busy" in str(exc):
         return JSONResponse(
             {"detail": "database is busy, retry"}, status_code=503, headers={"Retry-After": "5"}
         )
+    _log.error("database error on %s", request.url.path, exc_info=exc)
     return JSONResponse({"detail": "database error"}, status_code=500)
 
 

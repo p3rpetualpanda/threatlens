@@ -33,16 +33,16 @@ the database anyway).
 
 | Threat | Mitigation | Proof |
 |---|---|---|
-| Spoofing: password guessing | argon2id hashes; 5 failures per 15 min per username and per IP, then 429; unknown usernames count too | `tests/test_lockout.py`, `test_five_failures_lock_even_the_right_password`, `test_lock_covers_unknown_usernames_too` |
+| Spoofing: password guessing | argon2id hashes; 5 failures per 15 min per username and per IP, then 429; unknown usernames count too; the attempt is counted under the write lock before the password is checked, so parallel guesses cannot slip past | `tests/test_lockout.py` (incl. `test_parallel_guesses_cannot_all_pass_the_gate`), `test_five_failures_lock_even_the_right_password`, `test_lock_covers_unknown_usernames_too` |
 | Spoofing: account enumeration | Same 401 body for wrong password and unknown email; unknown email costs a dummy argon2 verify | `test_wrong_password_and_unknown_user_look_identical`, `test_wrong_password_and_unknown_user_fail_the_same_way` |
 | Spoofing: session fixation | Login always issues a new token; a planted cookie value never becomes a session | `test_login_replaces_a_planted_session_cookie`, `test_tokens_are_random_and_only_a_hash_is_stored` |
 | Spoofing: stolen database | Session tokens stored as sha256 only; passwords as argon2id | `test_password_is_stored_as_argon2id_not_plaintext` |
 | Tampering: CSRF | Per-session synchronizer token in `X-CSRF-Token` on every non-safe method, plus `SameSite=Strict` | `test_logout_needs_csrf_then_invalidates`, `test_another_sessions_csrf_token_is_rejected`, `test_session_routes_that_change_state_need_the_csrf_header` |
-| Information disclosure: cookie theft | `HttpOnly`, `SameSite=Strict`, `Secure` off localhost, HSTS on https | `test_login_returns_user_and_csrf_and_a_safe_cookie`, `test_cookie_is_secure_off_localhost` |
+| Information disclosure: cookie theft | `HttpOnly`, `SameSite=Strict`, `Secure` off localhost (decided from the request host), HSTS on https | `test_login_returns_user_and_csrf_and_a_safe_cookie`, `test_cookie_is_secure_off_localhost` |
 | Information disclosure: framing, sniffing, caching | CSP (`default-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options`, `nosniff`, `no-referrer`, `no-store` | `test_security_headers_everywhere_but_docs` |
-| Repudiation | Login success, lock, logout and user creation are audited | `test_login_is_audited_and_the_chain_holds`, `test_create_user_is_audited_without_the_password` |
+| Repudiation | Login success, lock, logout and user creation are audited; a failed login below the lock threshold is not | `test_login_is_audited_and_the_chain_holds`, `test_logout_is_audited_and_clears_the_cookie`, `test_create_user_is_audited_without_the_password` |
 | Elevation of privilege | Roles viewer < analyst < lead < admin, checked on the server after the session | `test_roles_include_the_ones_below`, `tests/test_authz_matrix.py` |
-| Denial of service | Idle sessions expire after 8 h; login body capped (254 / 1024 chars) | `test_idle_expiry_and_sliding_window`, `test_login_rejects_malformed_bodies` |
+| Denial of service | Idle sessions expire after 8 h, and no session outlives 24 h; login fields capped (254 / 1024 chars) and a declared body over 4 KB gets 413 | `test_idle_expiry_and_sliding_window`, `test_a_busy_session_still_ends_at_the_absolute_limit`, `test_login_rejects_malformed_bodies`, `test_oversized_login_body_is_refused_before_it_is_parsed` |
 
 ### Ingest client to server (`POST /api/v1/findings`)
 
@@ -58,23 +58,34 @@ the database anyway).
 
 | Threat | Mitigation | Proof |
 |---|---|---|
-| Tampering with the audit log | Hash chain: each row's hash covers the previous hash; `threatlens audit verify` exits 1 and names the first bad row | `test_editing_any_field_is_detected`, `test_deleting_a_middle_row_is_detected`, `test_cli_verify_ok_and_tampered` |
+| Tampering with the audit log | Hash chain: each row's hash covers the previous hash; `threatlens audit verify` exits 1 and names the first bad row. This catches accidental and naive edits only: there is no secret and no trigger, so someone who can write the file can rewrite the rows and recompute the hashes (gap 1) | `test_editing_any_field_is_detected`, `test_deleting_a_middle_row_is_detected`, `test_cli_verify_ok_and_tampered` |
 | Tampering during migration | Each migration is one transaction; a failed or raced migration leaves no half schema | `tests/test_migrations.py` |
 | Secrets at rest | No default admin; `create-admin` reads a prompt or `$THREATLENS_ADMIN_PASSWORD`; passwords and tokens never reach the audit log | `test_cli_create_admin_*`, `test_api_key_create_and_revoke_are_audited` |
 
 ## Known gaps (accepted for now)
 
-1. **Tail truncation:** deleting the newest audit rows is not detectable from the log alone.
-   Keep an offsite copy of the latest hash if that matters.
+1. **Audit log is not tamper-proof:** the hash chain is unkeyed and nothing blocks UPDATE or
+   DELETE. A writer of the database file can rewrite rows and recompute every later hash, or
+   cut rows off the tail, and `verify` will not notice. Upgrade path: HMAC with a key held
+   outside the database, `BEFORE UPDATE/DELETE` triggers, and an offsite copy of the latest hash.
 2. **Lockout as a weapon:** anyone can lock a known username for 15 minutes by failing five
    times. Chosen over letting an attacker guess freely.
 3. **IP key behind a proxy:** the lock uses the socket peer address. Behind a reverse proxy
    every client looks the same until forwarded addresses are trusted.
 4. **No rate limit on the ingest 401 path.** Keys are 256-bit, so guessing is not feasible,
    but the endpoint can still be hammered.
-5. **No user-management routes yet.** Users come from the CLI only; admin routes arrive with
-   the M5 UI. Until then there is no way to revoke a key or session from the API.
+5. **No user-management routes or account disable yet.** Users come from the CLI only; admin
+   routes arrive with the M5 UI. Until then nothing (API or CLI) can revoke a session, disable
+   an account or reset a password except editing the SQLite file.
 6. **Stored XSS tests:** no page renders finding fields yet. The "hostile finding renders
    escaped on every page" test is added with the UI in M5.
 7. **`/docs` and `/redoc` have no CSP** because Swagger UI loads scripts from a CDN. Turn
    them off in production.
+8. **Login body cap trusts `Content-Length`;** a chunked body skips it. Put a body limit on the
+   reverse proxy.
+9. **Unhandled 500s skip the security headers** (Starlette answers them outside the
+   middleware). The body is plain text.
+10. **Every authenticated request writes** the sliding expiry, so a long ingest can make
+    analyst requests wait for the write lock (503 after 30 s).
+11. **`Secure` and HSTS come from the request**, not from a setting. Behind a TLS-terminating
+    proxy they need forwarded headers to be trusted.

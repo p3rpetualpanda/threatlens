@@ -30,15 +30,35 @@ def is_locked(conn: sqlite3.Connection, keys: list[str], now: datetime) -> bool:
     return False
 
 
-def record_failure(conn: sqlite3.Connection, keys: list[str], now: datetime) -> None:
-    conn.execute("DELETE FROM login_attempts WHERE at <= ?", [(now - WINDOW).isoformat()])
-    conn.executemany(
-        "INSERT INTO login_attempts (key, at) VALUES (?, ?)", [(k, now.isoformat()) for k in keys]
-    )
+def reserve(conn: sqlite3.Connection, keys: list[str], now: datetime) -> list[int] | None:
+    """Count this attempt as a failure *before* the password is checked, or return None if locked.
+
+    The write lock makes check-and-insert one step, so parallel guesses cannot all see a count
+    of zero. A good login hands the row ids back to `forgive`.
+    """
+    conn.execute("BEGIN IMMEDIATE")
+    try:
+        conn.execute("DELETE FROM login_attempts WHERE at <= ?", [(now - WINDOW).isoformat()])
+        if is_locked(conn, keys, now):
+            conn.commit()
+            return None
+        ids = [
+            conn.execute(
+                "INSERT INTO login_attempts (key, at) VALUES (?, ?)", [k, now.isoformat()]
+            ).lastrowid
+            for k in keys
+        ]
+    except BaseException:
+        conn.rollback()
+        raise
     conn.commit()
+    return [int(i) for i in ids if i is not None]
 
 
-def clear(conn: sqlite3.Connection, key: str) -> None:
-    """Forget a key's failures after a good login. Used for the username, never the IP."""
-    conn.execute("DELETE FROM login_attempts WHERE key = ?", [key])
-    conn.commit()
+def forgive(conn: sqlite3.Connection, user_key: str, attempt_ids: list[int]) -> None:
+    """After a good login: drop the username's failures and this attempt's own rows.
+
+    The IP's earlier failures stay. Does not commit: the caller commits with the session.
+    """
+    conn.execute("DELETE FROM login_attempts WHERE key = ?", [user_key])
+    conn.executemany("DELETE FROM login_attempts WHERE id = ?", [(i,) for i in attempt_ids])

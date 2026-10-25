@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from app.db import connect, migrate
-from app.sessions import IDLE_TIMEOUT, create_session, delete_session, get_session
+from app.sessions import ABSOLUTE_TIMEOUT, IDLE_TIMEOUT, create_session, delete_session, get_session
 from app.users import create_user
 
 NOW = datetime(2026, 10, 25, 12, 0, tzinfo=UTC)
@@ -84,3 +84,15 @@ def test_creating_a_session_purges_expired_ones(conn: sqlite3.Connection, uid: s
     create_session(conn, uid, NOW)
     create_session(conn, uid, NOW + IDLE_TIMEOUT + timedelta(hours=1))
     assert conn.execute("SELECT count(*) FROM sessions").fetchone()[0] == 1
+
+
+def test_a_busy_session_still_ends_at_the_absolute_limit(
+    conn: sqlite3.Connection, uid: str
+) -> None:
+    token, _ = create_session(conn, uid, NOW)
+    t = NOW
+    while t + IDLE_TIMEOUT < NOW + ABSOLUTE_TIMEOUT:  # used every 7 h, so never idle
+        t += timedelta(hours=7)
+        assert get_session(conn, token, t) is not None
+    assert get_session(conn, token, NOW + ABSOLUTE_TIMEOUT) is None
+    assert conn.execute("SELECT count(*) FROM sessions").fetchone()[0] == 0

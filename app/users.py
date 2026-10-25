@@ -15,6 +15,8 @@ from .audit import record
 
 ROLES = ("viewer", "analyst", "lead", "admin")  # each role includes the ones before it
 MIN_PASSWORD = 12
+MAX_EMAIL = 254  # the login form's caps: no account may exist that cannot log in
+MAX_PASSWORD = 1024
 
 _hasher = PasswordHasher()  # argon2id with the library's current default cost
 _EMAIL = re.compile(r"[^@\s]+@[^@\s]+")
@@ -38,23 +40,27 @@ def create_user(
     actor: str = "system",
 ) -> str:
     email = email.strip().lower()
-    if not _EMAIL.fullmatch(email):
+    if len(email) > MAX_EMAIL or not _EMAIL.fullmatch(email):
         raise ValueError("email is not valid")
     if role not in ROLES:
         raise ValueError(f"role must be one of {', '.join(ROLES)}")
     if len(password) < MIN_PASSWORD:
         raise ValueError(f"password must be at least {MIN_PASSWORD} characters")
+    if len(password) > MAX_PASSWORD:
+        raise ValueError(f"password must be at most {MAX_PASSWORD} characters")
     user_id = str(uuid.uuid4())
+    password_hash = _hasher.hash(password)
     try:
-        conn.execute(
-            "INSERT INTO users (id, email, password_hash, role, created_at) VALUES (?, ?, ?, ?, ?)",
-            [user_id, email, _hasher.hash(password), role, now.isoformat()],
-        )
+        try:
+            conn.execute(
+                "INSERT INTO users (id, email, password_hash, role, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                [user_id, email, password_hash, role, now.isoformat()],
+            )
+        except sqlite3.IntegrityError as exc:  # only the INSERT: an audit error must not hide
+            raise ValueError(f"a user with email {email} already exists") from exc
         record(conn, actor, "user.create", user_id, {"email": email, "role": role}, now)
         conn.commit()
-    except sqlite3.IntegrityError as exc:
-        conn.rollback()
-        raise ValueError(f"a user with email {email} already exists") from exc
     except BaseException:
         conn.rollback()
         raise

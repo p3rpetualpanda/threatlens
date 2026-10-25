@@ -91,9 +91,14 @@ def _import(path: Path, db: Path) -> int:
 
 
 def _create_api_key(name: str, db: Path) -> int:
-    migrate(db)
-    with closing(connect(db)) as conn:
-        print(create_api_key(conn, name, datetime.now(UTC), "cli"))
+    try:
+        migrate(db)
+        with closing(connect(db)) as conn:
+            token = create_api_key(conn, name, datetime.now(UTC), "cli")
+    except sqlite3.Error as exc:
+        print(f"database error: {exc}", file=sys.stderr)
+        return 1
+    print(token)
     return 0
 
 
@@ -104,11 +109,11 @@ def _create_admin(email: str, db: Path) -> int:
         if getpass.getpass("Repeat password: ") != password:
             print("passwords do not match", file=sys.stderr)
             return 1
-    migrate(db)
     try:
+        migrate(db)
         with closing(connect(db)) as conn:
             create_user(conn, email, password, "admin", datetime.now(UTC), "cli")
-    except ValueError as exc:
+    except (ValueError, sqlite3.Error) as exc:
         print(f"cannot create admin: {exc}", file=sys.stderr)
         return 1
     print(f"created admin {email.strip().lower()}")
@@ -116,12 +121,19 @@ def _create_admin(email: str, db: Path) -> int:
 
 
 def _audit_verify(db: Path) -> int:
-    with closing(connect(db)) as conn:
-        bad = verify(conn)
-        if bad is not None:
-            print(f"audit chain broken at row {bad}", file=sys.stderr)
-            return 1
-        count = conn.execute("SELECT count(*) FROM audit_log").fetchone()[0]
+    if not db.is_file():  # connect() would quietly create an empty database
+        print(f"no database at {db}", file=sys.stderr)
+        return 1
+    try:
+        with closing(connect(db)) as conn:
+            bad = verify(conn)
+            if bad is not None:
+                print(f"audit chain broken at row {bad}", file=sys.stderr)
+                return 1
+            count = conn.execute("SELECT count(*) FROM audit_log").fetchone()[0]
+    except sqlite3.Error as exc:
+        print(f"database error: {exc}", file=sys.stderr)
+        return 1
     print(f"audit chain ok ({count} rows)")
     return 0
 
