@@ -29,7 +29,9 @@ workflow. It does no detection of its own.
   Weights: `config/risk.yml`. Assets and identities come from CSV files
   (`threatlens load-assets config/assets.csv`, `load-identities`), which replace the table and
   re-score every incident; the demo files are illustrative. IP class uses the standard library
-  only, no lookups. ATT&CK technique names are not loaded yet.
+  only, no lookups. ATT&CK 20.0 technique names, tactics and links come from the committed
+  `app/data/attack_subset.json` (706 techniques), built by `scripts/build_attack_subset.py` from
+  MITRE's bundle after a sha256 check; the incident detail lists them under `techniques`.
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per

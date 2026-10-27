@@ -8,7 +8,7 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query
 
-from . import config
+from . import attack, config
 from .auth import require_role
 from .db import connect
 from .risk import label, load_risk_config
@@ -47,7 +47,8 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
         if row is None:
             raise HTTPException(404, "no such incident")
         members = conn.execute(
-            "SELECT a.finding_info_uid AS uid, a.rule, a.severity, a.time, ia.why, ia.pinned "
+            "SELECT a.finding_info_uid AS uid, a.rule, a.severity, a.technique, a.time, ia.why, "
+            "ia.pinned "
             "FROM incident_alerts ia JOIN alerts a ON a.id = ia.alert_id "
             "WHERE ia.incident_id = ? ORDER BY a.time, a.finding_info_uid",
             [incident_id],
@@ -65,6 +66,10 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
         "too_common": json.loads(row["too_common"]),
         "risk_factors": json.loads(row["risk_factors"] or "[]"),
         "risk_label": label(row["risk_score"] or 0, load_risk_config()),
+        "techniques": [
+            attack.describe(t) for t in sorted({m["technique"] for m in members if m["technique"]})
+        ],
+        "attack_version": attack.version(),
         "alert_count": len(members),
         "alerts": list(folded.values()),
     }

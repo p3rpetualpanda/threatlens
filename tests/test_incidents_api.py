@@ -93,3 +93,11 @@ def test_detail_shows_risk_factors_that_sum_to_the_score(client: TestClient) -> 
         assert d["risk_factors"], inc
         assert sum(f["points"] for f in d["risk_factors"]) == d["risk_score"]
         assert d["risk_label"] in {"Low", "Medium", "High", "Critical"}
+
+
+def test_detail_names_the_attack_techniques(client: TestClient) -> None:
+    lab_a = client.get("/api/v1/incidents", params={"environment": "lab_a"}).json()["incidents"][0]
+    detail = client.get(f"/api/v1/incidents/{lab_a['id']}").json()
+    assert detail["techniques"]
+    assert all(t["name"] != "Unknown" and t["url"] for t in detail["techniques"])
+    assert detail["attack_version"] == "20.0"

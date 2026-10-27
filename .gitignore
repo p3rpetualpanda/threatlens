@@ -4,6 +4,7 @@ __pycache__/
 .pytest_cache/
 *.db
 data/
+!app/data/
 
 # Tool / test artifacts
 .mypy_cache/
