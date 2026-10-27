@@ -7,6 +7,8 @@ out of caches and it is never written to the audit log.
 
 from __future__ import annotations
 
+import sqlite3
+import time
 import unicodedata
 from contextlib import closing
 from datetime import UTC, datetime
@@ -19,7 +21,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config, flash
 from .apikeys import create_api_key, revoke_api_key
-from .audit import verify
+from .audit import Checkpoint, verify_from
 from .auth import cookie_secure
 from .db import connect
 from .sessions import Session
@@ -30,6 +32,10 @@ from .users import ROLES
 router = APIRouter()
 _PAGE = 50
 _MAX_NAME = 100
+_FULL_EVERY = 600  # seconds between whole-chain passes; views in between check only new rows
+_checked: dict[
+    str, tuple[Checkpoint | None, float]
+] = {}  # per database: checkpoint, full-pass time
 _NEWKEY = "threatlens_newkey"  # carries a new token across the redirect, for 60 s
 
 
@@ -42,6 +48,21 @@ def _need(request: Request, minimum: str) -> Session | Response:
     return session
 
 
+def _chain_status(conn: sqlite3.Connection) -> int | None:
+    """First broken row id or None. Rows after the last checkpoint are checked on every view; the
+    whole chain (0.24 s per 50,000 rows) every _FULL_EVERY s, so an edit to an old row shows up
+    within that time. `threatlens audit verify` is always a full pass."""
+    key, now = str(config.DB_PATH), time.monotonic()
+    point, full_at = _checked.get(key, (None, 0.0))
+    full = point is None or now - full_at >= _FULL_EVERY
+    broken, last = verify_from(conn, None if full else point)
+    if broken is None:
+        _checked[key] = (last, now if full else full_at)
+    else:
+        _checked.pop(key, None)  # re-check everything until it is repaired
+    return broken
+
+
 @router.get("/audit", response_class=HTMLResponse, include_in_schema=False)
 def audit_log(
     request: Request, before: Annotated[int | None, Query(ge=1, le=2**63 - 1)] = None
@@ -50,9 +71,7 @@ def audit_log(
     if isinstance(session, Response):
         return session
     with closing(connect(config.DB_PATH)) as conn:
-        # shortcut: walks the whole chain per view (0.24 s per 50,000 rows, readers do not block
-        # writers in WAL); check incrementally once the log passes a few hundred thousand rows
-        broken = verify(conn)
+        broken = _chain_status(conn)
         # login rows hold client IPs and emails typed by anyone: admins only
         hide = session.user.role != "admin"
         rows = conn.execute(

@@ -58,12 +58,30 @@ def record(
     )
 
 
-def verify(conn: sqlite3.Connection) -> int | None:
-    """Return the id of the first row that breaks the chain, or None if it is intact."""
-    prev = GENESIS
-    for row in conn.execute("SELECT * FROM audit_log ORDER BY id"):
+Checkpoint = tuple[int, str]  # (id, hash) of the last row a pass found intact
+
+
+def verify_from(
+    conn: sqlite3.Connection, after: Checkpoint | None = None
+) -> tuple[int | None, Checkpoint | None]:
+    """Check the chain, starting just after `after` when given; return (first broken id or None,
+    the last intact row). A checkpoint whose row changed or vanished reports that row as broken."""
+    prev, start = GENESIS, 0
+    if after is not None:
+        start, prev = after
+        row = conn.execute("SELECT hash FROM audit_log WHERE id = ?", [start]).fetchone()
+        if row is None or row["hash"] != prev:
+            return start, None
+    last: Checkpoint | None = after
+    for row in conn.execute("SELECT * FROM audit_log WHERE id > ? ORDER BY id", [start]):
         fields = {k: row[k] for k in ("id", "at", "actor", "action", "target", "detail")}
         if row["prev_hash"] != prev or row["hash"] != _hash(prev, fields):
-            return int(row["id"])
+            return int(row["id"]), last
         prev = str(row["hash"])
-    return None
+        last = (int(row["id"]), prev)
+    return None, last
+
+
+def verify(conn: sqlite3.Connection) -> int | None:
+    """Return the id of the first row that breaks the chain, or None if it is intact."""
+    return verify_from(conn)[0]

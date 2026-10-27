@@ -10,6 +10,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
+import app.admin_ui as admin_ui
 import app.main as main_mod
 from app import config
 from app.apikeys import lookup_api_key
@@ -156,13 +157,40 @@ def test_refreshing_the_create_post_page_shows_no_token_and_makes_no_second_key(
         assert conn.execute("SELECT count(*) FROM api_keys").fetchone()[0] == 1
 
 
-def test_audit_check_sees_a_middle_edit_at_once(db: Path) -> None:
+def _edit_row(row_id: int) -> None:
+    with closing(connect(config.DB_PATH)) as conn:
+        conn.execute("UPDATE audit_log SET actor = 'x' WHERE id = ?", [row_id])
+        conn.commit()
+
+
+def test_audit_check_sees_a_middle_edit_after_the_full_pass_interval(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(admin_ui, "_FULL_EVERY", 0)
     c, _ = login("lead")
     assert "chain intact" in c.get("/audit").text
-    with closing(connect(config.DB_PATH)) as conn:
-        conn.execute("UPDATE audit_log SET actor = 'x' WHERE id = 1")
-        conn.commit()
+    _edit_row(1)
     assert "broken at row 1" in c.get("/audit").text
+
+
+def test_between_full_passes_new_rows_and_the_checkpoint_row_are_still_checked(db: Path) -> None:
+    c, _ = login("lead")
+    assert "chain intact" in c.get("/audit").text  # full pass; checkpoint at the newest row
+    add_audit(3)
+    _edit_row(admin_ui._checked[str(config.DB_PATH)][0][0] + 2)  # type: ignore[index]
+    assert "broken at row" in c.get("/audit").text  # a new row, found without a full pass
+    _edit_row(1)
+    assert "broken at row" in c.get("/audit").text
+
+
+def test_a_clean_view_moves_the_checkpoint_to_the_newest_row(db: Path) -> None:
+    c, _ = login("lead")
+    c.get("/audit")
+    add_audit(2)
+    c.get("/audit")
+    with closing(connect(config.DB_PATH)) as conn:
+        newest = conn.execute("SELECT max(id) FROM audit_log").fetchone()[0]
+    assert admin_ui._checked[str(config.DB_PATH)][0][0] == newest  # type: ignore[index]
 
 
 def test_the_token_cookie_is_secure_off_localhost(db: Path) -> None:

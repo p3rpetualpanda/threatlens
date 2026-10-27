@@ -83,7 +83,7 @@ the database anyway).
 | Admin pages: role and CSRF | `/audit` needs lead, `/admin/keys` needs admin; POSTs run the session, Origin, role, CSRF gate | `tests/test_authz_matrix.py`, `test_key_pages_are_admin_only`, `test_key_name_is_required_and_a_wrong_csrf_creates_nothing` |
 | Admin pages: spoofed names or messages | Key names reject control and bidi characters and are autoescaped; the success message comes from a server-side one-shot slot, never from the query | `test_key_name_is_required_and_a_wrong_csrf_creates_nothing`, `test_success_shows_a_fixed_message_once` |
 | Audit page: login details | Leads do not see `login.*` rows at all (client IPs, emails anyone typed); admins see everything | `test_leads_do_not_see_login_rows_but_admins_do` |
-| Audit page load | The chain is verified in full on every view (0.24 s per 50,000 rows; WAL readers do not block writers), so an edit in the middle shows at once; incremental checking is the next step past a few hundred thousand rows | `test_audit_check_sees_a_middle_edit_at_once` |
+| Audit page load | Each view checks only rows added since the last clean check (and that the checkpoint row is unchanged); the whole chain (0.24 s per 50,000 rows) is re-checked every 10 minutes, so an edit to an old row can stay unseen for up to 10 minutes. `threatlens audit verify` is always a full pass | `test_audit_check_sees_a_middle_edit_after_the_full_pass_interval`, `test_between_full_passes_new_rows_and_the_checkpoint_row_are_still_checked` |
 
 ## Known gaps (accepted for now)
 
