@@ -19,7 +19,8 @@ from typing import Any
 from .audit import record
 from .correlate import Alert, partition
 from .correlation_config import load_config
-from .risk import load_risk_config, score
+from .enrich import ip_class
+from .risk import RiskConfig, load_risk_config, score
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 Spans = dict[str, tuple[datetime, datetime]]
@@ -239,16 +240,7 @@ def _sync(
                 "UPDATE incident_alerts SET why = ? WHERE incident_id = ? AND alert_id = ?",
                 [g.why[a], iid, a],
             )
-    members = conn.execute(
-        "SELECT a.severity, a.tactic FROM incident_alerts ia JOIN alerts a ON a.id = ia.alert_id "
-        "WHERE ia.incident_id = ?",
-        [iid],
-    ).fetchall()
-    risk, factors = score(
-        [m["severity"] for m in members],
-        {m["tactic"] for m in members if m["tactic"]},
-        load_risk_config(),
-    )
+    risk, factors = _risk(conn, iid, row["environment"], load_risk_config())
     n = len(desired)
     first_alert = min(desired, key=lambda a: (spans[a][0], a))
     title = titles[first_alert] + (f" (+{n - 1} more)" if n > 1 else "")
@@ -278,3 +270,75 @@ def _sync(
         [*values, stamp, iid],
     )
     return True
+
+
+def _risk(
+    conn: sqlite3.Connection, iid: str, environment: str, cfg: RiskConfig
+) -> tuple[int, list[dict[str, Any]]]:
+    members = conn.execute(
+        "SELECT a.severity, a.tactic FROM incident_alerts ia JOIN alerts a ON a.id = ia.alert_id "
+        "WHERE ia.incident_id = ?",
+        [iid],
+    ).fetchall()
+    ents = conn.execute(
+        "SELECT e.kind, lower(e.value) AS value, a.tactic FROM incident_alerts ia "
+        "JOIN alerts a ON a.id = ia.alert_id JOIN alert_entities e ON e.alert_id = a.id "
+        "WHERE ia.incident_id = ? AND e.kind IN ('host', 'user', 'src_ip')",
+        [iid],
+    ).fetchall()
+    hosts = {e["value"] for e in ents if e["kind"] == "host"}
+    users = {e["value"] for e in ents if e["kind"] == "user"}
+    criticality = max(
+        (
+            r["criticality"]
+            for r in conn.execute(
+                "SELECT host, criticality FROM assets WHERE environment = ?", [environment]
+            )
+            if r["host"] in hosts
+        ),
+        default=None,
+    )
+    privileged = [
+        r["user"]
+        for r in conn.execute(
+            "SELECT user FROM identities WHERE environment = ? AND privileged = 1", [environment]
+        )
+        if r["user"] in users
+    ]
+    public = sorted(
+        {
+            e["value"]
+            for e in ents
+            if e["kind"] == "src_ip"
+            and e["tactic"] in cfg.auth_tactics
+            and ip_class(e["value"]) == "public"
+        }
+    )
+    return score(
+        [m["severity"] for m in members],
+        {m["tactic"] for m in members if m["tactic"]},
+        cfg,
+        criticality,
+        privileged,
+        public,
+    )
+
+
+def rescore(conn: sqlite3.Connection, now: datetime) -> list[str]:
+    """Recompute live incidents' risk after assets or identities change; return changed ids."""
+    cfg = load_risk_config()
+    stamp = now.isoformat()
+    changed = []
+    for r in conn.execute(
+        "SELECT id, environment, risk_score, risk_factors FROM incidents WHERE merged_into IS NULL"
+    ).fetchall():
+        risk, factors = _risk(conn, r["id"], r["environment"], cfg)
+        text = json.dumps(factors)
+        if (risk, text) != (r["risk_score"], r["risk_factors"]):
+            conn.execute(
+                "UPDATE incidents SET risk_score = ?, risk_factors = ?, updated_at = ? "
+                "WHERE id = ?",
+                [risk, text, stamp, r["id"]],
+            )
+            changed.append(r["id"])
+    return changed

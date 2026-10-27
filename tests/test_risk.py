@@ -71,5 +71,19 @@ def test_label_boundaries(value: int, want: str) -> None:
 
 
 def test_label_without_floors_is_low() -> None:
-    cfg = RiskConfig({}, 0, frozenset(), 0, {})
+    cfg = RiskConfig({}, 0, frozenset(), 0, {}, 0, frozenset(), 0, {})
     assert label(99, cfg) == "Low"
+
+
+def test_asset_privileged_and_public_ip_factors() -> None:
+    total, factors = score(
+        ["Medium"], set(), CFG, criticality=3, privileged=["b", "a"], public_ips=["8.8.8.8"]
+    )
+    assert total == 20 + 15 + 10 + 5
+    assert [f["factor"] for f in factors] == ["severity", "asset", "privileged", "public_ip"]
+    assert "a, b" in factors[2]["reason"] and "8.8.8.8" in factors[3]["reason"]
+
+
+def test_criticality_one_and_unknown_score_nothing() -> None:
+    assert score([], set(), CFG, criticality=1)[1] == []
+    assert score([], set(), CFG, criticality=9)[1] == []

@@ -3,4 +3,8 @@ severity_points: {Low: 10, Medium: 20, High: 35, Critical: 50}   # highest alert
 extra_tactic_points: 8          # each distinct ATT&CK tactic beyond the first
 progress_tactics: [Credential Access, Lateral Movement]
 progress_points: 10             # once, if any progress tactic is present
+criticality_points: {2: 8, 3: 15}   # highest asset criticality among the incident's hosts
+privileged_points: 10           # once, if a privileged identity is involved
+auth_tactics: [Credential Access]   # an alert with one of these tactics is an authentication alert
+public_ip_points: 5             # once, if a public src_ip appears in an authentication alert
 label_floors: {Medium: 25, High: 50, Critical: 75}   # below Medium is Low

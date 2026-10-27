@@ -22,11 +22,14 @@ workflow. It does no detection of its own.
   alert. Settings: `config/correlation.yml`. Analyst-touched incidents never split, resolved ones
   are frozen, ids are stable. Read-only `GET /api/v1/incidents` and `/{id}` for any logged-in
   role. Measured on beacon's 544-finding export: see [docs/correlation.md](docs/correlation.md).
-- Risk score (M4, first part): every incident gets a 0-100 score from its highest alert severity,
-  its distinct ATT&CK tactics and Credential Access / Lateral Movement. The detail endpoint
+- Risk score (M4): every incident gets a 0-100 score from its highest alert severity, its
+  distinct ATT&CK tactics, Credential Access / Lateral Movement, the most critical asset, a
+  privileged identity and a public source IP in an authentication alert. The detail endpoint
   returns `risk_factors` (each with points and a reason, summing to the score) and `risk_label`.
-  Weights: `config/risk.yml`. Asset criticality, privileged identities and public source IPs
-  are not scored yet.
+  Weights: `config/risk.yml`. Assets and identities come from CSV files
+  (`threatlens load-assets config/assets.csv`, `load-identities`), which replace the table and
+  re-score every incident; the demo files are illustrative. IP class uses the standard library
+  only, no lookups. ATT&CK technique names are not loaded yet.
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per

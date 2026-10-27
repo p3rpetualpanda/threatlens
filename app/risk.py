@@ -16,6 +16,10 @@ _KEYS = {
     "extra_tactic_points",
     "progress_tactics",
     "progress_points",
+    "criticality_points",
+    "privileged_points",
+    "auth_tactics",
+    "public_ip_points",
     "label_floors",
 }
 
@@ -26,6 +30,10 @@ class RiskConfig:
     extra_tactic_points: int
     progress_tactics: frozenset[str]
     progress_points: int
+    criticality_points: dict[int, int]
+    privileged_points: int
+    auth_tactics: frozenset[str]
+    public_ip_points: int
     label_floors: dict[str, int]
 
 
@@ -40,14 +48,28 @@ def load_risk_config(path: Path | None = None) -> RiskConfig:
         extra_tactic_points=int(raw["extra_tactic_points"]),
         progress_tactics=frozenset(str(t) for t in raw["progress_tactics"]),
         progress_points=int(raw["progress_points"]),
+        criticality_points={int(k): int(v) for k, v in raw["criticality_points"].items()},
+        privileged_points=int(raw["privileged_points"]),
+        auth_tactics=frozenset(str(t) for t in raw["auth_tactics"]),
+        public_ip_points=int(raw["public_ip_points"]),
         label_floors={str(k): int(v) for k, v in raw["label_floors"].items()},
     )
 
 
 def score(
-    severities: list[str], tactics: set[str], cfg: RiskConfig
+    severities: list[str],
+    tactics: set[str],
+    cfg: RiskConfig,
+    criticality: int | None = None,
+    privileged: list[str] | None = None,
+    public_ips: list[str] | None = None,
 ) -> tuple[int, list[dict[str, Any]]]:
-    """Return (score 0-100, factors as {factor, points, reason})."""
+    """Return (score 0-100, factors as {factor, points, reason}).
+
+    ``criticality`` is the highest asset criticality among the incident's hosts, ``privileged``
+    the privileged identities involved, ``public_ips`` the public source IPs seen in
+    authentication alerts.
+    """
     factors: list[dict[str, Any]] = []
     known = [s for s in severities if s in cfg.severity_points]
     if known:
@@ -75,6 +97,31 @@ def score(
                 "factor": "progress",
                 "points": cfg.progress_points,
                 "reason": f"{' and '.join(hit)} present",
+            }
+        )
+    if criticality and cfg.criticality_points.get(criticality):
+        factors.append(
+            {
+                "factor": "asset",
+                "points": cfg.criticality_points[criticality],
+                "reason": f"involves an asset of criticality {criticality}",
+            }
+        )
+    if privileged:
+        factors.append(
+            {
+                "factor": "privileged",
+                "points": cfg.privileged_points,
+                "reason": f"privileged identity involved: {', '.join(sorted(privileged)[:3])}",
+            }
+        )
+    if public_ips:
+        factors.append(
+            {
+                "factor": "public_ip",
+                "points": cfg.public_ip_points,
+                "reason": "public source IP in an authentication alert: "
+                + ", ".join(sorted(public_ips)[:3]),
             }
         )
     total = sum(f["points"] for f in factors)

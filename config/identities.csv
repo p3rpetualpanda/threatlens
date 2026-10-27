@@ -1,0 +1,4 @@
+# Illustrative demo data: departments and privilege are made up for the fixture users.
+environment,user,privileged,department
+lab_a,dschrute,true,administration
+lab_a,jhalpert,false,sales

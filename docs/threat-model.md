@@ -65,6 +65,13 @@ the database anyway).
 | Repudiation | Automatic merges write an `incident.merge` audit row by `system`; creating incidents is not audited, to keep the log small | `test_audit_row_on_merge` |
 | Denial of service | Re-partitioning runs per ingest inside the write lock. Memory is flat; time is quadratic in alerts that share one value inside the window (800 on one host plus 3,200 others stays under 40 MB). Fine to a few thousand (`shortcut:` note in `app/correlate.py`) | `scripts/measure_correlation.py` on the 544-finding export |
 
+### Asset and identity CSV loaders (`threatlens load-assets`, `load-identities`)
+
+| Threat | Mitigation | Proof |
+|---|---|---|
+| Tampering: a bad or empty file changes scores | Local CLI only, no HTTP route. The header, criticality, flags and duplicates are checked before anything is written; an empty file is refused; the replace is one transaction | `tests/test_enrich.py` |
+| Repudiation | Every load writes an `assets.load` or `identities.load` audit row | `test_load_assets_lowercases_and_replaces` |
+
 ### Server to SQLite file
 
 | Threat | Mitigation | Proof |

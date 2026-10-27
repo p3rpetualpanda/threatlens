@@ -1,0 +1,4 @@
+# Illustrative demo data: roles and criticality are made up for the fixture hosts.
+environment,host,criticality,owner,role
+lab_a,scranton,3,it-ops,domain controller
+lab_b,sshd01,2,linux-team,bastion host

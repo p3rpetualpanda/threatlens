@@ -18,6 +18,8 @@ from .apikeys import create_api_key
 from .audit import verify
 from .contract import validate_findings
 from .db import connect, migrate
+from .enrich import load_assets, load_identities
+from .incidents import rescore
 from .ingest import ingest_findings
 from .users import create_user
 
@@ -121,6 +123,27 @@ def _create_admin(email: str, db: Path) -> int:
     return 0
 
 
+def _load_csv(kind: str, path: Path, db: Path) -> int:
+    loader = load_assets if kind == "load-assets" else load_identities
+    try:
+        migrate(db)
+        with closing(connect(db)) as conn:
+            now = datetime.now(UTC)
+            rows = loader(conn, path, now)
+            conn.execute("BEGIN IMMEDIATE")
+            try:
+                changed = rescore(conn, now)
+                conn.commit()
+            except BaseException:
+                conn.rollback()
+                raise
+    except (ValueError, sqlite3.Error) as exc:
+        print(f"cannot load {path}: {exc}", file=sys.stderr)
+        return 1
+    print(f"loaded {rows} rows; re-scored {len(changed)} incidents")
+    return 0
+
+
 def _audit_verify(db: Path) -> int:
     if not db.is_file():  # connect() would quietly create an empty database
         print(f"no database at {db}", file=sys.stderr)
@@ -150,9 +173,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         "create-admin", help="create an admin; password from $THREATLENS_ADMIN_PASSWORD or prompt"
     )
     admin.add_argument("email")
+    assets = commands.add_parser("load-assets", help="replace assets from a CSV")
+    assets.add_argument("file", type=Path)
+    idents = commands.add_parser("load-identities", help="replace identities from a CSV")
+    idents.add_argument("file", type=Path)
     audit = commands.add_parser("audit", help="audit log tools")
     audit.add_argument("action", choices=["verify"])
-    for sub in (imp, key, admin, audit):
+    for sub in (imp, key, admin, assets, idents, audit):
         sub.add_argument("--db", type=Path, default=None, help="default: $THREATLENS_DB_PATH")
     args = parser.parse_args(argv)
     db = args.db or _default_db()
@@ -160,6 +187,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _import(args.file, db)
     if args.command == "create-admin":
         return _create_admin(args.email, db)
+    if args.command in ("load-assets", "load-identities"):
+        return _load_csv(args.command, args.file, db)
     if args.command == "audit":
         return _audit_verify(db)
     return _create_api_key(args.name, db)
