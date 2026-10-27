@@ -116,7 +116,7 @@ def _register(name: str, minimum: str, call: Call) -> None:
             return await run_in_threadpool(
                 render_incident, request, session, incident_id, exc.status, exc.message
             )
-        flash.put(session.csrf_token, "done", name)
+        await run_in_threadpool(flash.put, session.csrf_token, "done", name)
         return RedirectResponse(f"/incidents/{quote(incident_id)}", status_code=303)
 
     router.add_api_route(

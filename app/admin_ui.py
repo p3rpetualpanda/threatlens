@@ -92,7 +92,7 @@ def _keys(
     request: Request,
     session: Session,
     code: int = 200,
-    created: tuple[str, str] | None = None,
+    created: list[str] | None = None,
     error: str | None = None,
 ) -> Response:
     token, name = (created[1], created[0]) if created else (None, None)
@@ -141,7 +141,7 @@ async def key_create(request: Request) -> Response:
         return await run_in_threadpool(_keys, request, session, 422, None, msg)
     token = await run_in_threadpool(_create, session.user.email, name)
     # redirect so a refresh cannot repeat the POST; the token waits in memory for one page view
-    flash.put(session.csrf_token, "key", (name, token))
+    await run_in_threadpool(flash.put, session.csrf_token, "key", [name, token])
     return RedirectResponse("/admin/keys", status_code=303)
 
 

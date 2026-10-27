@@ -1,29 +1,48 @@
 """One-shot messages handed from a POST to the page it redirects to, keyed by session.
 
 The redirect target stays a plain URL, so a refresh or a typed `?done=` cannot replay or fake
-a message, and a one-time API token never rides in a URL.
-shortcut: in-process memory, so it needs one worker (the demo setup) and a restart drops a
-pending message; move it to the database before running several workers.
+a message, and a one-time API token never rides in a URL. Rows are in SQLite, so several
+workers and restarts are fine. A row lives 60 s and is deleted when read; a new API token sits
+in `value` for that window (the keys table itself keeps only its hash).
 """
 
 from __future__ import annotations
 
-import time
+import hashlib
+import json
+from contextlib import closing
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-_TTL = 60.0
-_slots: dict[tuple[str, str], tuple[float, Any]] = {}
+from . import config
+from .db import connect
+
+_TTL = timedelta(seconds=60)
+
+
+def _key(session_key: str) -> str:
+    return hashlib.sha256(session_key.encode()).hexdigest()
 
 
 def put(session_key: str, kind: str, value: Any) -> None:
-    now = time.monotonic()
-    for k in [k for k, (at, _) in _slots.items() if now - at > _TTL]:
-        del _slots[k]
-    _slots[(session_key, kind)] = (now, value)
+    now = datetime.now(UTC)
+    with closing(connect(config.DB_PATH)) as conn:
+        conn.execute("DELETE FROM flash WHERE at < ?", [(now - _TTL).isoformat()])
+        conn.execute(
+            "INSERT OR REPLACE INTO flash (session_key, kind, value, at) VALUES (?, ?, ?, ?)",
+            [_key(session_key), kind, json.dumps(value), now.isoformat()],
+        )
+        conn.commit()
 
 
 def pop(session_key: str, kind: str) -> Any | None:
-    entry = _slots.pop((session_key, kind), None)
-    if entry is None or time.monotonic() - entry[0] > _TTL:
+    cutoff = (datetime.now(UTC) - _TTL).isoformat()
+    with closing(connect(config.DB_PATH)) as conn:
+        row = conn.execute(
+            "DELETE FROM flash WHERE session_key = ? AND kind = ? RETURNING value, at",
+            [_key(session_key), kind],
+        ).fetchone()
+        conn.commit()
+    if row is None or row["at"] < cutoff:
         return None
-    return entry[1]
+    return json.loads(row["value"])
