@@ -54,6 +54,14 @@ workflow. It does no detection of its own.
   `assets` and `identities` are minimal until M4.
 - Tooling: uv, ruff, mypy (strict), bandit, pip-audit, pytest. `make check` is the gate.
 
+## Screenshots
+
+Queue and incident page on the demo fixtures (admin role, so every form shows):
+
+![Incident queue, desktop](docs/screens/queue-desktop.jpg)
+![Incident page with actions, desktop](docs/screens/incident-desktop.jpg)
+![Incident page at 375 px](docs/screens/incident-375px.jpg)
+
 ## Run locally
 
 ```powershell

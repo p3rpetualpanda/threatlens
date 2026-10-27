@@ -186,7 +186,7 @@ def test_security_headers_everywhere_but_docs(client: TestClient) -> None:
         assert "frame-ancestors 'none'" in h["content-security-policy"]
         assert h["x-content-type-options"] == "nosniff"
         assert h["x-frame-options"] == "DENY"
-        assert h["referrer-policy"] == "no-referrer"
+        assert h["referrer-policy"] == "same-origin"
         assert h["cache-control"] == "no-store"
         assert "strict-transport-security" not in h  # plain http
     docs = client.get("/docs")

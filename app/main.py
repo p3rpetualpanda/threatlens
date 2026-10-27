@@ -51,7 +51,9 @@ async def security_headers(
         response = await call_next(request)
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["Referrer-Policy"] = (
+        "same-origin"  # no-referrer makes browsers send Origin: null on form posts
+    )
     response.headers["Cache-Control"] = "no-store"
     if request.url.path not in _NO_CSP_PATHS:
         response.headers["Content-Security-Policy"] = _CSP
