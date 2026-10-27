@@ -81,7 +81,7 @@ MATRIX |= {
 # Form posts carry a hidden csrf field, not the header, so every logged-in role is refused here
 # (403 for csrf, or for role); tests/test_ui_actions.py covers what happens with a valid field.
 _FORM = {**dict.fromkeys(ROLES, 403), "anonymous": 303, "ingest_key": 303}
-for _a in ("take", "assign", "status", "disposition", "comment", "merge", "split"):
+for _a in ("take", "assign", "status", "disposition", "step", "comment", "merge", "split"):
     MATRIX[("POST", f"/incidents/{{incident_id}}/{_a}")] = (_FORM, {})
 MATRIX[("POST", "/logout")] = (_FORM, {})
 _AUDIT_ROLES = {"viewer": 403, "analyst": 403, "lead": 200, "admin": 200}

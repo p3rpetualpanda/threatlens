@@ -1,0 +1,16 @@
+id: command-and-control
+title: Command and control traffic
+applies_to: [Command and Control]
+steps:
+  - phase: containment
+    action: Identify the process on the host that is talking to the outside, and the remote address.
+    evidence_hint: dst_ip and process entities.
+  - phase: containment
+    action: Block the remote address and isolate the host.
+    d3fend: D3-OTF
+  - phase: eradication
+    action: Remove the implant and whatever started it, then look for it on other hosts that contacted the same address.
+  - phase: recovery
+    action: Rebuild the host if the implant had been running for long or its reach is unclear.
+  - phase: lessons_learned
+    action: Record the remote address and any indicators so later alerts can be matched.

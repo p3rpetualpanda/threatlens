@@ -1,0 +1,15 @@
+id: default
+title: General incident handling
+steps:
+  - phase: containment
+    action: Confirm the alert is real by reading its evidence events, then note the affected hosts and accounts.
+    evidence_hint: The timeline and the alert pages show the raw evidence.
+  - phase: containment
+    action: Isolate or restrict the affected host or account if the activity is still going on.
+    d3fend: D3-UAP
+  - phase: eradication
+    action: Remove what the activity left behind and fix the weakness it used.
+  - phase: recovery
+    action: Return affected systems to service and watch them for a repeat.
+  - phase: lessons_learned
+    action: Record what happened, what worked and what to change, in a comment on this incident.

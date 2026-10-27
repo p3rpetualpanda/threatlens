@@ -1,0 +1,17 @@
+id: privilege-escalation
+title: Privilege escalation
+applies_to: [Privilege Escalation]
+steps:
+  - phase: containment
+    action: Find the account or process that gained higher rights, and the rights it now has.
+    evidence_hint: User and process entities on the incident.
+  - phase: containment
+    action: Isolate the host and disable the account if the rights were not granted by an administrator.
+    d3fend: D3-UAP
+  - phase: eradication
+    action: Remove the unintended rights, and fix the weakness used (a patch, a setting, a weak permission).
+    d3fend: D3-PH
+  - phase: recovery
+    action: Check what was done with the higher rights between the alert and containment.
+  - phase: lessons_learned
+    action: Record who holds rights like these and whether they need them.

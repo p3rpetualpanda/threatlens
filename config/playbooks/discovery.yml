@@ -1,0 +1,15 @@
+id: discovery
+title: Discovery and reconnaissance on a host
+applies_to: [Discovery]
+steps:
+  - phase: containment
+    action: Decide whether an administrator or a tool could have done this, by asking the account owner.
+    evidence_hint: The user entity and the process that ran the commands.
+  - phase: containment
+    action: If it was not expected, treat it as the start of an intrusion and review what else this account and host did.
+  - phase: eradication
+    action: Remove the access that allowed the commands to run, for example a stolen credential or a remote shell.
+  - phase: recovery
+    action: Keep the host and account under closer watch for a week.
+  - phase: lessons_learned
+    action: Note which commands were seen, so later alerts can be compared to them.

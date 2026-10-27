@@ -1,0 +1,18 @@
+id: persistence
+title: Persistence mechanisms
+applies_to: [Persistence]
+steps:
+  - phase: containment
+    action: List the autostart entries, services, scheduled tasks and accounts the alert points to, and what they run.
+    evidence_hint: Registry paths, service names and task names in the evidence.
+  - phase: containment
+    action: Disable the persistence entry without deleting it, so it can still be examined.
+  - phase: eradication
+    action: Delete the entry and the files it launches, then check for a second mechanism on the same host.
+  - phase: eradication
+    action: Remove accounts created by the activity and reset credentials that were used to create them.
+  - phase: recovery
+    action: Reboot the host and confirm that nothing starts again.
+  - phase: lessons_learned
+    action: Add a check for this location to the host baseline.
+    d3fend: D3-SCP

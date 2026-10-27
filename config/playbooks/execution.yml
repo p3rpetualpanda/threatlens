@@ -1,0 +1,19 @@
+id: execution
+title: Suspicious code execution
+applies_to: [Execution]
+steps:
+  - phase: containment
+    action: Read the command line and the parent process in the evidence to decide what ran and who started it.
+    d3fend: D3-PSA
+    evidence_hint: Process and parent process fields on the alert page.
+  - phase: containment
+    action: Isolate the host if the command downloaded or started other code.
+  - phase: eradication
+    action: Kill the process, remove any dropped files and any scheduled task or service it created.
+  - phase: eradication
+    action: Restrict which programs and scripts may run on the host.
+    d3fend: D3-EAL
+  - phase: recovery
+    action: Restore the host from a known good state if the change cannot be undone with confidence.
+  - phase: lessons_learned
+    action: Note how the code got onto the host (email, download, remote logon) and close that route.

@@ -212,3 +212,33 @@ def test_merge_of_an_emptied_incident_does_not_crash(conn: sqlite3.Connection) -
     )
     workflow.merge(conn, lead, other, iid, NOW)
     assert row(conn, other)["merged_into"] == iid
+
+
+def test_playbook_step_toggles_audits_and_freezes_grouping(conn: sqlite3.Connection) -> None:
+    iid, ann = one_incident(conn), user(conn, "analyst")
+    conn.execute("UPDATE alerts SET technique = 'T1110'")
+    workflow.take(conn, ann, iid, NOW)
+    steps = workflow.incident_steps(conn, iid)
+    assert steps and not any(done for _, done in steps)
+    sid = steps[0][0].id
+    assert sid.startswith("brute-force.")  # the technique picked its own playbook
+    workflow.set_step(conn, ann, iid, sid, True, NOW)
+    assert [done for s, done in workflow.incident_steps(conn, iid) if s.id == sid] == [True]
+    workflow.set_step(conn, ann, iid, sid, False, NOW)
+    assert not any(done for _, done in workflow.incident_steps(conn, iid))
+    actions = [r["action"] for r in conn.execute("SELECT action FROM audit_log")]
+    assert actions.count("incident.step") == 2
+    assert verify(conn) is None
+
+
+def test_playbook_step_refuses_unknown_step_stranger_and_resolved(
+    conn: sqlite3.Connection,
+) -> None:
+    iid, ann, bob = one_incident(conn), user(conn, "analyst"), user(conn, "analyst", "bob")
+    workflow.take(conn, ann, iid, NOW)
+    sid = workflow.incident_steps(conn, iid)[0][0].id
+    fail(422, workflow.set_step, conn, ann, iid, "nope.1", True, NOW)
+    fail(403, workflow.set_step, conn, bob, iid, sid, True, NOW)
+    workflow.set_disposition(conn, ann, iid, "true_positive", NOW)
+    workflow.set_status(conn, ann, iid, "resolved", NOW)
+    fail(409, workflow.set_step, conn, ann, iid, sid, True, NOW)

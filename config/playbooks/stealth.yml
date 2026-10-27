@@ -1,0 +1,17 @@
+id: stealth
+title: Evasion and tampering with defences
+applies_to: [Stealth, Defense Impairment]
+steps:
+  - phase: containment
+    action: Establish what was hidden or switched off (logs, security tools, file names) and for how long.
+    evidence_hint: Command lines and the timeline gap around the alert.
+  - phase: containment
+    action: Treat the host as compromised, because its own logs may no longer tell the whole story, and isolate it.
+  - phase: eradication
+    action: Restore the logging or security tool that was disabled and check that it reports again.
+  - phase: eradication
+    action: Look in other sources (network logs, other hosts) for what the host can no longer show.
+  - phase: recovery
+    action: Rebuild the host if events were cleared and the activity cannot be accounted for.
+  - phase: lessons_learned
+    action: Send logs off the host in near real time, so clearing them locally does not erase them.

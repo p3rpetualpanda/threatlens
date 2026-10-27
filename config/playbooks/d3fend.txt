@@ -1,0 +1,13 @@
+D3-AL Account Locking
+D3-ANCI Authentication Cache Invalidation
+D3-CH Credential Hardening
+D3-EAL Executable Allowlisting
+D3-FAPA File Access Pattern Analysis
+D3-ITF Inbound Traffic Filtering
+D3-MFA Multi-factor Authentication
+D3-NTF Network Traffic Filtering
+D3-OTF Outbound Traffic Filtering
+D3-PH Platform Hardening
+D3-PSA Process Spawn Analysis
+D3-SCP System Configuration Permissions
+D3-UAP User Account Permissions

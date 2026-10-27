@@ -1,0 +1,19 @@
+id: lateral-movement
+title: Lateral movement
+applies_to: [Lateral Movement]
+steps:
+  - phase: containment
+    action: Identify the source host and the account used, and the hosts it reached.
+    evidence_hint: Host, user and src_ip entities, and the timeline order.
+  - phase: containment
+    action: Cut off the source host from the network and disable the account used.
+    d3fend: D3-NTF
+  - phase: eradication
+    action: Check every reached host for tools, new accounts, services and scheduled tasks.
+  - phase: eradication
+    action: Reset the credentials of the account used and of any account that was logged on to the source host.
+  - phase: recovery
+    action: Limit which hosts may use remote administration protocols to reach each other.
+    d3fend: D3-NTF
+  - phase: lessons_learned
+    action: Record the path taken and how far it went.

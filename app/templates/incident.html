@@ -76,6 +76,11 @@
 {% for a in timeline %}<li><time datetime="{{ a.time }}">{{ a.time }}</time> <a href="/alerts/{{ a.uid|urlencode }}">{{ a.rule }}</a> <span class="badge">{{ a.severity }}</span>{% if a.technique %} {{ a.technique }}{% endif %}{% if a.pinned %} (pinned){% endif %}</li>{% endfor %}
 </ol>
 
+<h2>Playbook</h2>
+{% for s, done in steps %}{% if loop.first or steps[loop.index0 - 1][0].phase != s.phase %}{% if not loop.first %}</ul>{% endif %}<h3>{{ s.phase|replace("_", " ")|capitalize }}</h3><ul class="steps">{% endif %}
+<li>{% if can.work %}<form method="post" action="/incidents/{{ inc.id }}/step"><input type="hidden" name="csrf" value="{{ csrf }}"><input type="hidden" name="step" value="{{ s.id }}"><input type="hidden" name="done" value="{{ 0 if done else 1 }}"><button type="submit" aria-pressed="{{ 'true' if done else 'false' }}">{{ "Undo" if done else "Done" }}</button></form> {% endif %}{% if done %}<s>{{ s.action }}</s> (done){% else %}{{ s.action }}{% endif %}{% if s.d3fend %} <span class="badge">{{ s.d3fend }}</span>{% endif %}{% if s.evidence_hint %} <span class="muted">{{ s.evidence_hint }}</span>{% endif %}</li>
+{% if loop.last %}</ul>{% endif %}{% endfor %}
+
 <h2>Comments</h2>
 {% for c in inc.comments %}<p><strong>{{ c.author }}</strong> <span class="muted">{{ c.created_at }}</span></p><pre>{{ c.body }}</pre>{% else %}<p class="muted">No comments.</p>{% endfor %}
 {% endblock %}

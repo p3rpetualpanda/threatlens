@@ -50,6 +50,12 @@ ACTIONS: dict[str, tuple[str, Call]] = {
         "analyst",
         lambda c, u, i, f, n: workflow.set_disposition(c, u, i, _one(f, "disposition") or None, n),
     ),
+    "step": (
+        "analyst",
+        lambda c, u, i, f, n: workflow.set_step(
+            c, u, i, _one(f, "step"), _one(f, "done") == "1", n
+        ),
+    ),
     "comment": ("analyst", lambda c, u, i, f, n: workflow.add_comment(c, u, i, _one(f, "body"), n)),
     "merge": ("lead", lambda c, u, i, f, n: workflow.merge(c, u, i, _one(f, "into").strip(), n)),
     "split": ("lead", lambda c, u, i, f, n: workflow.split(c, u, i, f.get("alert", []), n)),

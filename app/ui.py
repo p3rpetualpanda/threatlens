@@ -19,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BeforeValidator, ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from . import config, flash
+from . import config, flash, workflow
 from .auth import LoginBody, login, require_role
 from .db import connect
 from .enrich import ip_class
@@ -172,6 +172,7 @@ DONE = {
     "assign": "Owner updated.",
     "status": "Status updated.",
     "disposition": "Disposition updated.",
+    "step": "Playbook step updated.",
     "comment": "Comment added.",
     "merge": "Incidents merged.",
     "split": "Incident split.",
@@ -203,6 +204,7 @@ def render_incident(
             [incident_id],
         ).fetchall()
         ents = _entities(conn, incident_id, inc["environment"])
+        steps = workflow.incident_steps(conn, incident_id)
     rank = ROLES.index(session.user.role)  # buttons are a convenience; app.workflow enforces
     live = inc["status"] != "resolved"  # a resolved incident only allows a lead to reopen it
     work = rank >= 1 and (inc["owner"] == session.user.id or rank >= 2)
@@ -228,6 +230,7 @@ def render_incident(
         inc=inc,
         entities=ents,
         timeline=timeline,
+        steps=steps,
         can=can,
         error=error,
         notice=DONE.get(str(flash.pop(session.csrf_token, "done"))),

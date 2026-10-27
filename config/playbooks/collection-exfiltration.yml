@@ -1,0 +1,16 @@
+id: collection-exfiltration
+title: Data collection and exfiltration
+applies_to: [Collection, Exfiltration]
+steps:
+  - phase: containment
+    action: Establish what data was gathered or sent, where it went and how much.
+    evidence_hint: Destination addresses (dst_ip) and archive or staging file names in the evidence.
+  - phase: containment
+    action: Block the destination and stop the process or account doing the transfer.
+    d3fend: D3-OTF
+  - phase: eradication
+    action: Remove staged archives and the tool used to collect the data.
+  - phase: recovery
+    action: Tell the owner of the data, and follow your breach notification rules if personal data left.
+  - phase: lessons_learned
+    action: Record what was taken so later reports can be sized correctly.

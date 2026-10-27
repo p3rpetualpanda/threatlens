@@ -1,0 +1,21 @@
+id: brute-force
+title: Password guessing and spraying
+applies_to: [T1110]
+steps:
+  - phase: containment
+    action: Block the source address at the perimeter or host firewall.
+    d3fend: D3-ITF
+    evidence_hint: The src_ip entities on this incident.
+  - phase: containment
+    action: Check whether any targeted account had a successful logon from the same source, and if so reset its password and end its sessions.
+    d3fend: D3-ANCI
+  - phase: containment
+    action: Lock or require a reset for accounts that were guessed correctly.
+    d3fend: D3-AL
+  - phase: eradication
+    action: Require multi-factor authentication on the targeted service.
+    d3fend: D3-MFA
+  - phase: recovery
+    action: Watch authentication logs for the same source and accounts for a week.
+  - phase: lessons_learned
+    action: Review lockout thresholds and whether the service should be exposed to the internet at all.

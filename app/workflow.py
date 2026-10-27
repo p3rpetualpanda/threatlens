@@ -16,6 +16,7 @@ from typing import Any
 
 from .audit import record
 from .incidents import _merge, refresh
+from .playbooks import steps_for
 from .users import ROLES, User
 
 STATUSES = ("new", "in_progress", "resolved")
@@ -152,6 +153,45 @@ def set_disposition(
         )
     detail = {"from": row["disposition"], "to": disposition}
     record(conn, user.email, "incident.disposition", iid, detail, now)
+    return _state(conn, iid)
+
+
+def incident_steps(conn: sqlite3.Connection, iid: str) -> list[tuple[Any, bool]]:
+    """The playbook checklist for this incident's techniques, each step with its done flag."""
+    techs = [
+        r["technique"]
+        for r in conn.execute(
+            "SELECT DISTINCT a.technique FROM incident_alerts ia JOIN alerts a "
+            "ON a.id = ia.alert_id WHERE ia.incident_id = ? AND a.technique IS NOT NULL",
+            [iid],
+        )
+    ]
+    done = {
+        r["step"]
+        for r in conn.execute(
+            "SELECT step FROM playbook_progress WHERE incident_id = ? AND done = 1", [iid]
+        )
+    }
+    return [(s, s.id in done) for s in steps_for(techs)]
+
+
+def set_step(
+    conn: sqlite3.Connection, user: User, iid: str, step: str, done: bool, now: datetime
+) -> dict[str, Any]:
+    row = _load(conn, iid)
+    _own(user, row)
+    if row["status"] == "resolved":
+        raise WorkflowError(409, "incident is resolved; reopen it to change the checklist")
+    if step not in {s.id for s, _ in incident_steps(conn, iid)}:
+        raise WorkflowError(422, "no such playbook step for this incident")
+    conn.execute(
+        "INSERT INTO playbook_progress (incident_id, step, done, updated_at) VALUES (?, ?, ?, ?) "
+        "ON CONFLICT(incident_id, step) DO UPDATE SET done = excluded.done, "
+        "updated_at = excluded.updated_at",
+        [iid, step, int(done), now.isoformat()],
+    )
+    _update(conn, iid, now)
+    record(conn, user.email, "incident.step", iid, {"step": step, "done": done}, now)
     return _state(conn, iid)
 
 
