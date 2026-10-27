@@ -170,3 +170,22 @@ def test_the_token_cookie_is_secure_off_localhost(db: Path) -> None:
     assert "secure" in post(c, "/admin/keys", csrf, name="lab").headers["set-cookie"].lower()
     c, csrf = login("admin")
     assert "secure" not in post(c, "/admin/keys", csrf, name="lab2").headers["set-cookie"].lower()
+
+
+def test_leads_do_not_see_login_details_but_admins_do(db: Path) -> None:
+    with closing(connect(config.DB_PATH)) as conn:
+        record(
+            conn,
+            "anonymous",
+            "login.locked",
+            None,
+            {"email": "x@example.test", "ip": "198.51.100.7"},
+            NOW,
+        )
+        record(conn, "tester", "test.event", "t", {"keep": "visible"}, NOW)
+        conn.commit()
+    lead, _ = login("lead")
+    seen = lead.get("/audit").text
+    assert "198.51.100.7" not in seen and "login.locked" in seen and "visible" in seen
+    admin, _ = login("admin")
+    assert "198.51.100.7" in admin.get("/audit").text

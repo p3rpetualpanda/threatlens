@@ -20,7 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from . import config, flash
 from .apikeys import create_api_key, revoke_api_key
 from .audit import verify
-from .auth import _LOCAL_HOSTS
+from .auth import cookie_secure
 from .db import connect
 from .sessions import Session
 from .ui import _page, _viewer
@@ -59,7 +59,11 @@ def audit_log(
             [before, _PAGE + 1],
         ).fetchall()
     more = len(rows) > _PAGE
-    rows = rows[:_PAGE]
+    rows = [dict(r) for r in rows[:_PAGE]]
+    if session.user.role != "admin":  # login rows hold client IPs and emails typed by anyone
+        for r in rows:
+            if r["action"].startswith("login."):
+                r["detail"] = None
     return _page(
         request,
         "audit.html",
@@ -137,7 +141,7 @@ async def key_create(request: Request) -> Response:
         path="/admin/keys",
         httponly=True,
         samesite="strict",
-        secure=request.url.hostname not in _LOCAL_HOSTS,  # same rule as the session cookie
+        secure=cookie_secure(request),
     )
     return out
 

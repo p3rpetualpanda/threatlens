@@ -28,6 +28,12 @@ CSRF_HEADER = "x-csrf-token"
 _SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
 _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
+
+def cookie_secure(request: Request) -> bool:
+    """Cookies are `Secure` everywhere except a local development host."""
+    return request.url.hostname not in _LOCAL_HOSTS
+
+
 router = APIRouter(prefix="/api/v1")
 
 
@@ -100,7 +106,7 @@ def login(body: LoginBody, request: Request) -> JSONResponse:
         max_age=int(ABSOLUTE_TIMEOUT.total_seconds()),
         httponly=True,
         samesite="strict",
-        secure=request.url.hostname not in _LOCAL_HOSTS,
+        secure=cookie_secure(request),
         path="/",
     )
     return response
