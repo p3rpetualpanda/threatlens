@@ -114,3 +114,49 @@ def test_operator_cli_disables_enables_and_revokes(db: Path) -> None:
 def test_operator_cli_refuses_an_unknown_user(db: Path, capsys: pytest.CaptureFixture[str]) -> None:
     assert cli(["user", "disable", "nobody@example.test", "--db", str(db)]) == 1
     assert "no such user" in capsys.readouterr().err
+
+
+def _answers(monkeypatch: pytest.MonkeyPatch, *given: str) -> None:
+    replies = iter(given)
+    monkeypatch.setattr("app.cli.getpass.getpass", lambda prompt="": next(replies))
+
+
+def test_operator_set_password_replaces_it_and_ends_sessions(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with closing(connect(db)) as conn:
+        uid = create_user(conn, "ann@example.test", PW, "analyst", NOW)
+        token, _ = create_session(conn, uid, datetime.now(UTC))
+    new = "another long passphrase"
+    _answers(monkeypatch, new, new)
+    assert cli(["user", "set-password", "ann@example.test", "--db", str(db)]) == 0
+    with closing(connect(db)) as conn:
+        assert get_session(conn, token, datetime.now(UTC)) is None
+        assert authenticate(conn, "ann@example.test", PW) is None
+        assert authenticate(conn, "ann@example.test", new) is not None
+        row = conn.execute("SELECT detail FROM audit_log WHERE action = 'user.password_set'")
+        assert new not in row.fetchone()[0]  # the password never reaches the audit log
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "message"),
+    [
+        ("another long passphrase", "different one entirely", "differ"),
+        ("short", "short", "at least"),
+    ],
+)
+def test_operator_set_password_refuses_mismatch_and_weak(
+    db: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    first: str,
+    second: str,
+    message: str,
+) -> None:
+    with closing(connect(db)) as conn:
+        create_user(conn, "ann@example.test", PW, "analyst", NOW)
+    _answers(monkeypatch, first, second)
+    assert cli(["user", "set-password", "ann@example.test", "--db", str(db)]) == 1
+    assert message in capsys.readouterr().err
+    with closing(connect(db)) as conn:
+        assert authenticate(conn, "ann@example.test", PW) is not None  # unchanged

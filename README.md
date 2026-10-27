@@ -90,7 +90,7 @@ uv run threatlens import tests/fixtures/findings.jsonl
 uv run threatlens create-api-key lab_a
 uv run threatlens create-admin you@example.test
 uv run threatlens audit verify
-uv run threatlens user disable you@example.test   # also: enable, revoke-sessions (audited as "cli")
+uv run threatlens user disable you@example.test   # also: enable, revoke-sessions, set-password (prompts; ends their sessions; audited as "cli")
 ```
 
 Five bad ingest keys from one address in 15 minutes lock that address out of ingest (429, even
@@ -103,6 +103,8 @@ uv run threatlens audit keygen C:\secure\audit.key   # once; keep it off this ma
 $env:THREATLENS_AUDIT_KEY_FILE = "C:\secure\audit.key"
 $env:THREATLENS_AUDIT_ANCHOR = "C:\shipped\anchors.jsonl"
 uv run threatlens audit anchor    # run hourly from a scheduler; ship the file off the machine
+# Windows: schtasks /create /sc hourly /tn threatlens-anchor /tr "uv run --project <repo> threatlens audit anchor"
+# Linux:   0 * * * * cd <repo> && uv run threatlens audit anchor
 uv run threatlens audit verify    # also checks the anchors; --max-age 24 (hours)
 ```
 

@@ -34,6 +34,16 @@ class User:
     role: str
 
 
+def hash_password(password: str) -> str:
+    """Check the length rules and hash; raises ValueError. Gated like a login (memory cap)."""
+    if len(password) < MIN_PASSWORD:
+        raise ValueError(f"password must be at least {MIN_PASSWORD} characters")
+    if len(password) > MAX_PASSWORD:
+        raise ValueError(f"password must be at most {MAX_PASSWORD} characters")
+    with _gate:
+        return _hasher.hash(password)
+
+
 def create_user(
     conn: sqlite3.Connection,
     email: str,
@@ -47,13 +57,8 @@ def create_user(
         raise ValueError("email is not valid")
     if role not in ROLES:
         raise ValueError(f"role must be one of {', '.join(ROLES)}")
-    if len(password) < MIN_PASSWORD:
-        raise ValueError(f"password must be at least {MIN_PASSWORD} characters")
-    if len(password) > MAX_PASSWORD:
-        raise ValueError(f"password must be at most {MAX_PASSWORD} characters")
+    password_hash = hash_password(password)
     user_id = str(uuid.uuid4())
-    with _gate:  # admin-page creates run on request threads: same memory cap as a login
-        password_hash = _hasher.hash(password)
     try:
         try:
             conn.execute(

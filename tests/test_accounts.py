@@ -160,3 +160,13 @@ def test_the_same_role_is_a_quiet_no_op(conn: sqlite3.Connection) -> None:
     before = len(actions(conn))
     change_role(conn, boss, ann.id, "analyst", NOW)
     assert len(actions(conn)) == before
+
+
+def test_a_demotion_applies_to_the_live_session_at_once(conn: sqlite3.Connection) -> None:
+    boss, ann = make(conn, "boss", "admin"), make(conn, "ann", "lead")
+    token, _ = create_session(conn, ann.id, NOW)
+    live = get_session(conn, token, NOW)
+    assert live is not None and live.user.role == "lead"
+    change_role(conn, boss, ann.id, "viewer", NOW)
+    after = get_session(conn, token, NOW)
+    assert after is not None and after.user.role == "viewer"  # role is read per request

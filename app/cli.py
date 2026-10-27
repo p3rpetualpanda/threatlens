@@ -14,7 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import config
-from .accounts import AccountError, operator_change
+from .accounts import AccountError, operator_change, operator_set_password
 from .anchor import AnchorError, append_anchor, check_anchor, generate_key, load_key
 from .apikeys import create_api_key
 from .audit import record, verify
@@ -153,7 +153,14 @@ def _user_access(action: str, email: str, db: Path) -> int:
         return 1
     try:
         with closing(connect(db)) as conn:
-            operator_change(conn, email, action, datetime.now(UTC))
+            if action == "set-password":
+                pw = getpass.getpass("New password: ")
+                if pw != getpass.getpass("Again: "):
+                    print("passwords differ", file=sys.stderr)
+                    return 1
+                operator_set_password(conn, email, pw, datetime.now(UTC))
+            else:
+                operator_change(conn, email, action, datetime.now(UTC))
     except AccountError as exc:
         print(exc.message, file=sys.stderr)
         return 1
@@ -267,7 +274,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     audit.add_argument("--anchor-file", type=Path, help="default: $THREATLENS_AUDIT_ANCHOR")
     audit.add_argument("--max-age", type=float, default=24.0, help="hours; verify only")
     user = commands.add_parser("user", help="disable, enable or sign out an account")
-    user.add_argument("action", choices=["disable", "enable", "revoke-sessions"])
+    user.add_argument("action", choices=["disable", "enable", "revoke-sessions", "set-password"])
     user.add_argument("email")
     for sub in (imp, key, admin, assets, idents, audit, user):
         sub.add_argument("--db", type=Path, default=None, help="default: $THREATLENS_DB_PATH")

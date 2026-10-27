@@ -4,7 +4,6 @@ applies_to: [Execution]
 steps:
   - phase: containment
     action: Read the command line and the parent process in the evidence to decide what ran and who started it.
-    d3fend: D3-PSA
     evidence_hint: Process and parent process fields on the alert page.
   - phase: containment
     action: Isolate the host if the command downloaded or started other code.

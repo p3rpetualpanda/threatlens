@@ -12,7 +12,7 @@ from collections.abc import Callable
 from datetime import datetime
 
 from .audit import record
-from .users import ROLES, User
+from .users import ROLES, User, hash_password
 
 
 class AccountError(Exception):
@@ -73,6 +73,28 @@ def operator_change(conn: sqlite3.Connection, email: str, action: str, now: date
                 )
             conn.execute("DELETE FROM sessions WHERE user_id = ?", [row["id"]])
         record(conn, "cli", _OPERATOR_ACTIONS[action], row["id"], {"email": row["email"]}, now)
+
+    _write(conn, run)
+
+
+def operator_set_password(
+    conn: sqlite3.Connection, email: str, password: str, now: datetime
+) -> None:
+    """`threatlens user set-password`: replace the hash and end every session of the user."""
+    try:
+        new_hash = hash_password(password)
+    except ValueError as exc:
+        raise AccountError(422, str(exc)) from exc
+
+    def run() -> None:
+        row = conn.execute(
+            "SELECT id, email FROM users WHERE email = ?", [email.strip().lower()]
+        ).fetchone()
+        if row is None:
+            raise AccountError(404, "no such user")
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", [new_hash, row["id"]])
+        conn.execute("DELETE FROM sessions WHERE user_id = ?", [row["id"]])
+        record(conn, "cli", "user.password_set", row["id"], {"email": row["email"]}, now)
 
     _write(conn, run)
 
