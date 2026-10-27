@@ -50,6 +50,9 @@ workflow. It does no detection of its own.
   lessons learned) picked from the incident's ATT&CK techniques by the YAML files in
   `config/playbooks/` (exact technique, parent, tactic, then a default). Ticking a step is audited.
   D3FEND ids come from a pinned list in `config/playbooks/d3fend.txt`.
+- Reports: `/incidents/{id}/report` is a printable page and `/incidents/{id}/report.md` a Markdown
+  download (any signed-in role). Summary, scope, timeline, techniques, risk factors, checklist,
+  audited actions and disposition; every stored value is escaped. Merged incidents are 404.
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Admin pages (M5d): a fixed one-shot message after each good action. `/audit` (lead and admin)
   lists the newest 50 audit rows (leads do not see login rows; admins do) and the hash-chain result (new rows checked on every view; the whole chain every 10 minutes, or every view if the append-only triggers are gone).

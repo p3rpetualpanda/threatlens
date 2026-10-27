@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}Report - {{ inc.title }} - ThreatLens{% endblock %}
+{% block body %}
+<p class="noprint"><a href="/incidents/{{ inc.id }}">&larr; Back to incident</a> &middot;
+<a href="/incidents/{{ inc.id }}/report.md">Download Markdown</a></p>
+<h1>Incident report: {{ inc.title }}</h1>
+<h2>Summary</h2>
+<p>{{ summary }}</p>
+<h2>Scope</h2>
+<ul>
+<li>Environment: {{ inc.environment }}</li>
+<li>Owner: {{ inc.owner_email or "unassigned" }}</li>
+<li>Alerts: {{ inc.alert_count }}</li>
+{% for e in entities %}<li>{{ e.kind }}: {{ e.value }}</li>{% endfor %}
+</ul>
+<h2>Timeline</h2>
+<ul>{% for t in timeline %}<li>{{ t.time or "no time" }} {{ t.rule }} ({{ t.severity }}){% if t.technique %} {{ t.technique }}{% endif %}</li>{% endfor %}</ul>
+<h2>ATT&amp;CK techniques</h2>
+<ul>{% for t in inc.techniques %}<li>{{ t.id }} {{ t.name }}: {{ t.tactics | join(", ") }}</li>{% endfor %}</ul>
+<h2>Risk factors</h2>
+<ul>{% for f in inc.risk_factors %}<li>+{{ f.points }} {{ f.factor }}: {{ f.reason }}</li>{% endfor %}</ul>
+<h2>Response checklist</h2>
+{% for ph in phases %}
+<h3>{{ ph.phase | replace("_", " ") | capitalize }}</h3>
+<ul>{% for s in ph.steps %}<li>[{{ "x" if s.done else " " }}] {{ s.action }}</li>{% endfor %}</ul>
+{% endfor %}
+<h2>Actions taken</h2>
+<ul>{% for a in actions %}<li>{{ a.at }} {{ a.actor }}: {{ a.action }}</li>{% endfor %}</ul>
+<h2>Disposition</h2>
+<p>{{ inc.disposition or "not set" }}</p>
+{% endblock %}

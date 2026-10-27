@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 {% block title %}{% if error %}Error - {% endif %}{{ inc.title }} - ThreatLens{% endblock %}
 {% block body %}
-<p><a href="/">&larr; All incidents</a></p>
+<p><a href="/">&larr; All incidents</a> &middot; <a href="/incidents/{{ inc.id }}/report">Report</a></p>
 <h1>{{ inc.title }}</h1>
 {% if error %}<p class="error" role="alert">Error: {{ error }}</p>{% endif %}
 {% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}

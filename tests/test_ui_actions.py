@@ -274,7 +274,7 @@ def test_forms_are_shown_by_role_and_carry_the_token(ctx: Ctx) -> None:
 
     v, _ = login("viewer")
 
-    assert f"/incidents/{ctx.a}/" not in v.get(f"/incidents/{ctx.a}").text
+    assert f'action="/incidents/{ctx.a}/' not in v.get(f"/incidents/{ctx.a}").text
 
     a, csrf = login("ann")
 

@@ -30,3 +30,8 @@ fieldset { border: 1px solid var(--line); min-width: 0; }
 .facts div { display: flex; gap: 0.4rem; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; }
+
+@media print {
+  .noprint, nav, header form { display: none; }
+  body { background: #fff; color: #000; }
+}
