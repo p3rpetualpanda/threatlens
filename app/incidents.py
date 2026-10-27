@@ -19,6 +19,7 @@ from typing import Any
 from .audit import record
 from .correlate import Alert, partition
 from .correlation_config import load_config
+from .risk import load_risk_config, score
 
 _EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 Spans = dict[str, tuple[datetime, datetime]]
@@ -238,6 +239,16 @@ def _sync(
                 "UPDATE incident_alerts SET why = ? WHERE incident_id = ? AND alert_id = ?",
                 [g.why[a], iid, a],
             )
+    members = conn.execute(
+        "SELECT a.severity, a.tactic FROM incident_alerts ia JOIN alerts a ON a.id = ia.alert_id "
+        "WHERE ia.incident_id = ?",
+        [iid],
+    ).fetchall()
+    risk, factors = score(
+        [m["severity"] for m in members],
+        {m["tactic"] for m in members if m["tactic"]},
+        load_risk_config(),
+    )
     n = len(desired)
     first_alert = min(desired, key=lambda a: (spans[a][0], a))
     title = titles[first_alert] + (f" (+{n - 1} more)" if n > 1 else "")
@@ -247,6 +258,8 @@ def _sync(
         max(spans[a][1] for a in desired).isoformat(timespec="milliseconds"),
         row["related_incident"] or (min(g.frozen) if g.frozen else None),
         json.dumps(sorted(g.too_common)),
+        risk,
+        json.dumps(factors),
     )
     same = values == (
         row["title"],
@@ -254,12 +267,14 @@ def _sync(
         row["last_seen"],
         row["related_incident"],
         row["too_common"],
+        row["risk_score"],
+        row["risk_factors"],
     )
     if same and not moved:
         return False
     conn.execute(
         "UPDATE incidents SET title = ?, first_seen = ?, last_seen = ?, related_incident = ?, "
-        "too_common = ?, updated_at = ? WHERE id = ?",
+        "too_common = ?, risk_score = ?, risk_factors = ?, updated_at = ? WHERE id = ?",
         [*values, stamp, iid],
     )
     return True

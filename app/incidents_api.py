@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Path, Query
 from . import config
 from .auth import require_role
 from .db import connect
+from .risk import label, load_risk_config
 
 router = APIRouter(prefix="/api/v1")
 
@@ -39,7 +40,7 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
     with closing(connect(config.DB_PATH)) as conn:
         row = conn.execute(
             "SELECT id, environment, title, status, disposition, owner, risk_score, first_seen, "
-            "last_seen, related_incident, merged_into, touched, too_common "
+            "last_seen, related_incident, merged_into, touched, too_common, risk_factors "
             "FROM incidents WHERE id = ?",
             [incident_id],
         ).fetchone()
@@ -62,6 +63,8 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
     return {
         **dict(row),
         "too_common": json.loads(row["too_common"]),
+        "risk_factors": json.loads(row["risk_factors"] or "[]"),
+        "risk_label": label(row["risk_score"] or 0, load_risk_config()),
         "alert_count": len(members),
         "alerts": list(folded.values()),
     }

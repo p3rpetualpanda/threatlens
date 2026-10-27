@@ -170,7 +170,7 @@ def test_incident_title_risk_and_times(conn: sqlite3.Connection) -> None:
     (iid,) = run(conn)
     row = conn.execute("SELECT * FROM incidents WHERE id = ?", [iid]).fetchone()
     assert row["title"] == "Title R05 (+1 more)"
-    assert row["risk_score"] is None
+    assert row["risk_score"] == 20
     assert row["first_seen"] == "2026-01-01T09:00:00.000+00:00"
     assert row["last_seen"] == "2026-01-01T09:30:00.000+00:00"
 
@@ -335,3 +335,18 @@ def test_missing_times_and_title_fall_back(conn: sqlite3.Connection) -> None:
     row = conn.execute("SELECT title, first_seen, last_seen FROM incidents WHERE id=?", [iid])
     row = row.fetchone()
     assert tuple(row) == ("R09", "2026-01-01T09:00:00.000+00:00", "2026-01-01T09:00:00.000+00:00")
+
+
+def test_risk_score_follows_membership(conn: sqlite3.Connection) -> None:
+    add(conn, "a", 0, host="h")
+    conn.execute("UPDATE alerts SET tactic = 'Execution' WHERE id = 'a'")
+    (iid,) = run(conn)
+    assert conn.execute("SELECT risk_score FROM incidents WHERE id=?", [iid]).fetchone()[0] == 20
+    add(conn, "b", 10, host="h")
+    conn.execute("UPDATE alerts SET tactic = 'Credential Access', severity = 'High' WHERE id='b'")
+    assert run(conn) == [iid]
+    row = conn.execute("SELECT risk_score, risk_factors FROM incidents WHERE id=?", [iid])
+    row = row.fetchone()
+    factors = json.loads(row["risk_factors"])
+    assert row["risk_score"] == 35 + 8 + 10
+    assert sum(f["points"] for f in factors) == row["risk_score"]

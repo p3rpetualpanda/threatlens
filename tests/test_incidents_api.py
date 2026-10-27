@@ -85,3 +85,11 @@ def test_detail_folds_same_rule_repeats(client: TestClient) -> None:
 
 def test_unknown_incident_is_404(client: TestClient) -> None:
     assert client.get("/api/v1/incidents/nope").status_code == 404
+
+
+def test_detail_shows_risk_factors_that_sum_to_the_score(client: TestClient) -> None:
+    for inc in client.get("/api/v1/incidents").json()["incidents"]:
+        d = client.get(f"/api/v1/incidents/{inc['id']}").json()
+        assert d["risk_factors"], inc
+        assert sum(f["points"] for f in d["risk_factors"]) == d["risk_score"]
+        assert d["risk_label"] in {"Low", "Medium", "High", "Critical"}

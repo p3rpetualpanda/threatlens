@@ -1,0 +1,6 @@
+# Incident risk score (spec 6.5). Weights are hand-set, not tuned on labelled data.
+severity_points: {Low: 10, Medium: 20, High: 35, Critical: 50}   # highest alert severity
+extra_tactic_points: 8          # each distinct ATT&CK tactic beyond the first
+progress_tactics: [Credential Access, Lateral Movement]
+progress_points: 10             # once, if any progress tactic is present
+label_floors: {Medium: 25, High: 50, Critical: 75}   # below Medium is Low

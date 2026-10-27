@@ -8,7 +8,7 @@ ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M3)
+## Current state (v2, M4 in progress)
 
 - FastAPI app: `/health`, ingest, and JSON login (`POST /api/v1/login`, `/logout`, `GET /me`).
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
@@ -22,6 +22,11 @@ workflow. It does no detection of its own.
   alert. Settings: `config/correlation.yml`. Analyst-touched incidents never split, resolved ones
   are frozen, ids are stable. Read-only `GET /api/v1/incidents` and `/{id}` for any logged-in
   role. Measured on beacon's 544-finding export: see [docs/correlation.md](docs/correlation.md).
+- Risk score (M4, first part): every incident gets a 0-100 score from its highest alert severity,
+  its distinct ATT&CK tactics and Credential Access / Lateral Movement. The detail endpoint
+  returns `risk_factors` (each with points and a reason, summing to the score) and `risk_label`.
+  Weights: `config/risk.yml`. Asset criticality, privileged identities and public source IPs
+  are not scored yet.
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per
