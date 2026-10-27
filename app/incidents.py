@@ -33,7 +33,12 @@ class _Group:
 
 
 def _ms(value: Any) -> datetime | None:
-    return datetime.fromtimestamp(value / 1000, UTC) if isinstance(value, int | float) else None
+    if not isinstance(value, int | float):
+        return None
+    try:
+        return datetime.fromtimestamp(value / 1000, UTC)
+    except (OverflowError, ValueError, OSError):  # the schema only bounds the minimum
+        return None
 
 
 def _load_alerts(
@@ -153,10 +158,23 @@ def _insert_incident(conn: sqlite3.Connection, iid: str, environment: str, stamp
 
 
 def _merge(conn: sqlite3.Connection, loser: str, winner: str, stamp: str, now: datetime) -> None:
+    lost = conn.execute(
+        "SELECT l.owner AS owner, l.disposition AS disposition FROM incidents l, incidents w "
+        "WHERE l.id = ? AND w.id = ? AND ((l.owner IS NOT NULL AND w.owner IS NOT NULL "
+        "AND l.owner != w.owner) OR (l.disposition IS NOT NULL AND w.disposition IS NOT NULL "
+        "AND l.disposition != w.disposition))",
+        [loser, winner],
+    ).fetchone()
     conn.execute(
         "UPDATE incident_alerts SET incident_id = ? WHERE incident_id = ?", [winner, loser]
     )
     conn.execute("UPDATE comments SET incident_id = ? WHERE incident_id = ?", [winner, loser])
+    # a step both incidents have stays done if either had it done
+    conn.execute(
+        "UPDATE playbook_progress SET done = 1 WHERE incident_id = ? AND done = 0 AND step IN "
+        "(SELECT step FROM playbook_progress WHERE incident_id = ? AND done = 1)",
+        [winner, loser],
+    )
     conn.execute(
         "UPDATE OR IGNORE playbook_progress SET incident_id = ? WHERE incident_id = ?",
         [winner, loser],
@@ -167,6 +185,8 @@ def _merge(conn: sqlite3.Connection, loser: str, winner: str, stamp: str, now: d
         "UPDATE incidents SET "
         "owner = COALESCE(owner, (SELECT owner FROM incidents WHERE id = ?1)), "
         "disposition = COALESCE(disposition, (SELECT disposition FROM incidents WHERE id = ?1)), "
+        "related_incident = COALESCE(related_incident, "
+        "(SELECT related_incident FROM incidents WHERE id = ?1)), "
         "status = CASE WHEN status = 'new' THEN (SELECT status FROM incidents WHERE id = ?1) "
         "ELSE status END, "
         "touched = touched OR (SELECT touched FROM incidents WHERE id = ?1), "
@@ -176,7 +196,10 @@ def _merge(conn: sqlite3.Connection, loser: str, winner: str, stamp: str, now: d
     conn.execute(
         "UPDATE incidents SET merged_into = ?, updated_at = ? WHERE id = ?", [winner, stamp, loser]
     )
-    record(conn, "system", "incident.merge", winner, {"merged": loser}, now)
+    detail: dict[str, Any] = {"merged": loser}
+    if lost:  # the winner's value was kept; keep the loser's on record
+        detail["dropped"] = {k: lost[k] for k in ("owner", "disposition") if lost[k]}
+    record(conn, "system", "incident.merge", winner, detail, now)
 
 
 def _sync(

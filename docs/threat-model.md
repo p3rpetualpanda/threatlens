@@ -59,11 +59,11 @@ the database anyway).
 
 | Threat | Mitigation | Proof |
 |---|---|---|
-| Spoofing, elevation of privilege | Read-only; any logged-in role (viewer and up). Anonymous and API-key callers get 401 | `tests/test_authz_matrix.py` |
+| Spoofing, elevation of privilege | Read-only; any logged-in role (viewer and up) sees every environment (no per-environment grants yet). Anonymous and API-key callers get 401 | `tests/test_authz_matrix.py` |
 | Tampering: SQL injection through filters | Parameterised SQL; `status` is an enum, `limit` is 1-200, `environment` and the id are length-capped | `test_sql_in_filter_is_just_a_value`, `test_limit_is_capped_at_200` |
 | Tampering: hostile finding text shown back | Titles and reasons are JSON strings, never HTML; the security headers stay on every response | `tests/test_incidents_api.py` |
 | Repudiation | Automatic merges write an `incident.merge` audit row by `system`; creating incidents is not audited, to keep the log small | `test_audit_row_on_merge` |
-| Denial of service | Re-partitioning is O(alerts in the environment) per ingest; fine to a few thousand alerts (`shortcut:` note in `app/correlate.py`) | `scripts/measure_correlation.py` on the 544-finding export |
+| Denial of service | Re-partitioning runs per ingest inside the write lock. Memory is flat; time is quadratic in alerts that share one value inside the window (800 on one host plus 3,200 others stays under 40 MB). Fine to a few thousand (`shortcut:` note in `app/correlate.py`) | `scripts/measure_correlation.py` on the 544-finding export |
 
 ### Server to SQLite file
 

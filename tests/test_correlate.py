@@ -126,3 +126,82 @@ def test_alert_linked_only_to_later_alert_still_explained() -> None:
 def test_inverted_range_does_not_crash() -> None:
     a = Alert("a", "R", T0 + timedelta(minutes=10), T0, frozenset({("host", "h")}))
     assert len(groups([a, mk("b", 20, ("host", "h"))])) == 1
+
+
+def test_dense_bucket_stays_small() -> None:
+    import tracemalloc
+
+    alerts = [Alert(f"a{i:04}", "R", T0, T0, frozenset({("host", "h")})) for i in range(800)]
+    alerts += [mk(f"b{i:04}", 5000 + i, ("host", f"x{i}")) for i in range(3200)]
+    tracemalloc.start()
+    try:
+        comps = partition(alerts, CFG)
+        peak = tracemalloc.get_traced_memory()[1]
+    finally:
+        tracemalloc.stop()
+    assert len(comps) == 3201
+    assert peak < 40_000_000  # the pair lists this replaced took ~150 MB here
+
+
+def test_src_ip_links_and_values_are_trimmed_and_lowered() -> None:
+    assert groups(
+        [mk("a", 0, ("src_ip", "203.0.113.5")), mk("b", 5, ("src_ip", "203.0.113.5"))]
+    ) == {frozenset({"a", "b"})}
+    assert groups([mk("a", 0, ("host", " H1 ")), mk("b", 5, ("host", "h1"))]) == {
+        frozenset({"a", "b"})
+    }
+
+
+def test_blank_values_never_link() -> None:
+    assert len(groups([mk("a", 0, ("host", "  ")), mk("b", 5, ("host", "  "))])) == 2
+
+
+def test_overlapping_ranges_are_zero_minutes_apart() -> None:
+    (c,) = partition([mk("a", 0, ("host", "h"), dur=60), mk("b", 10, ("host", "h"))], CFG)
+    assert "0 min apart" in c.why["b"]
+
+
+def test_why_names_the_nearest_earlier_alert() -> None:
+    alerts = [
+        mk("a", 0, ("host", "h"), rule="FAR"),
+        mk("b", 50, ("host", "h"), rule="NEAR"),
+        mk("c", 60, ("host", "h")),
+    ]
+    (c,) = partition(alerts, CFG)
+    assert "NEAR" in c.why["c"] and "FAR" not in c.why["c"]
+
+
+def test_alert_with_no_earlier_link_names_its_nearest_later_partner() -> None:
+    # x joins the component only through later alerts (z, y), which share its host
+    alerts = [
+        mk("a", 0, ("user", "u")),
+        mk("x", 100, ("host", "h2")),
+        mk("z", 105, ("host", "h2"), rule="NEARER"),
+        mk("y", 110, ("host", "h2"), ("user", "u"), rule="FARTHER"),
+    ]
+    (c,) = partition(alerts, CFG)
+    assert "later alert NEARER" in c.why["x"]
+
+
+def test_inverted_range_still_links_by_its_start() -> None:
+    inverted = Alert("a", "R", T0 + timedelta(minutes=30), T0, frozenset({("host", "h")}))
+    assert groups([inverted, mk("b", 60, ("host", "h"))]) == {frozenset({"a", "b"})}
+
+
+def test_components_come_back_in_uid_order() -> None:
+    alerts = [mk("c", 0, ("host", "x")), mk("a", 500, ("host", "y")), mk("b", 1000, ("host", "z"))]
+    assert [min(c.uids) for c in partition(alerts, CFG)] == ["a", "b", "c"]
+
+
+def test_order_independent_with_auto_stoplist_active() -> None:
+    import random
+
+    alerts = [mk(f"h{i:02}", i, ("host", "hot"), ("user", f"u{i % 7}")) for i in range(60)]
+    alerts += [mk(f"q{i:02}", i * 3, ("host", f"c{i % 5}")) for i in range(20)]
+    want = sorted((sorted(c.uids), sorted(c.too_common)) for c in partition(alerts, CFG))
+    assert any(c.too_common for c in partition(alerts, CFG))
+    for seed in range(5):
+        shuffled = alerts[:]
+        random.Random(seed).shuffle(shuffled)  # noqa: S311 (test shuffle)
+        got = sorted((sorted(c.uids), sorted(c.too_common)) for c in partition(shuffled, CFG))
+        assert got == want

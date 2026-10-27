@@ -4,8 +4,9 @@ Two alerts link when they share a host, user or src_ip that is not stoplisted an
 ranges are within ``link_window``. Components are the connected groups. The result depends only
 on the set of alerts, never on the order they are passed in.
 
-shortcut: every alert of an environment is re-partitioned on each ingest; fine to a few thousand
-alerts, needs an incremental version beyond ~50k.
+shortcut: every alert of an environment is re-partitioned on each ingest, and a bucket of n alerts
+sharing one value inside the window costs n^2 steps (1,500 in one minute: see
+tests/test_correlate.py). Needs an incremental version beyond a few thousand alerts per window.
 """
 
 from collections import defaultdict
@@ -73,9 +74,11 @@ def partition(alerts: list[Alert], cfg: CorrelationConfig) -> list[Component]:
             x = parent[x]
         return x
 
-    # edges[uid] -> candidate (rank, text) pairs, rank makes the choice order-independent
-    earlier: dict[str, list[tuple[tuple[object, ...], str]]] = defaultdict(list)
-    later: dict[str, list[tuple[tuple[object, ...], str]]] = defaultdict(list)
+    # Best neighbour per alert, kept as (rank, rule, kind, value, minutes). The rank makes the
+    # choice order-independent; the text is built once, for the winner only.
+    Pick = tuple[tuple[object, ...], str, str, str, int]
+    earlier: dict[str, Pick] = {}
+    later: dict[str, Pick] = {}
     window = cfg.link_window
     for (kind, value), members in buckets.items():
         ends = [max(m.first_seen, m.last_seen) for m in members]
@@ -90,17 +93,12 @@ def partition(alerts: list[Alert], cfg: CorrelationConfig) -> list[Component]:
                 if ends[j] >= threshold:
                     gap = max(0, int((b.first_seen - ends[j]).total_seconds()))
                     mins = gap // 60
-                    rank = (gap, a.first_seen, a.uid, kind, value)
-                    earlier[b.uid].append(
-                        (rank, f"shares {kind} `{value}` with alert {a.rule} ({mins} min apart)")
-                    )
-                    rank = (gap, b.first_seen, b.uid, kind, value)
-                    later[a.uid].append(
-                        (
-                            rank,
-                            f"shares {kind} `{value}` with later alert {b.rule} ({mins} min apart)",
-                        )
-                    )
+                    pick = ((gap, a.first_seen, a.uid, kind, value), a.rule, kind, value, mins)
+                    if b.uid not in earlier or pick[0] < earlier[b.uid][0]:
+                        earlier[b.uid] = pick
+                    pick = ((gap, b.first_seen, b.uid, kind, value), b.rule, kind, value, mins)
+                    if a.uid not in later or pick[0] < later[a.uid][0]:
+                        later[a.uid] = pick
                     parent[find(a.uid)] = find(b.uid)
                 j -= 1
 
@@ -114,10 +112,12 @@ def partition(alerts: list[Alert], cfg: CorrelationConfig) -> list[Component]:
         for k, a in enumerate(members):
             if k == 0:
                 why[a.uid] = _FIRST
-            elif earlier[a.uid]:
-                why[a.uid] = min(earlier[a.uid], key=lambda c: c[0])[1]
+            elif a.uid in earlier:
+                _, rule, kind, value, mins = earlier[a.uid]
+                why[a.uid] = f"shares {kind} `{value}` with alert {rule} ({mins} min apart)"
             else:
-                why[a.uid] = min(later[a.uid], key=lambda c: c[0])[1]
+                _, rule, kind, value, mins = later[a.uid]
+                why[a.uid] = f"shares {kind} `{value}` with later alert {rule} ({mins} min apart)"
         too_common = frozenset(f"{k}:{v}" for m in members for k, v in pivots[m.uid] & common)
         components.append(Component(frozenset(a.uid for a in members), why, too_common))
     components.sort(key=lambda c: min(c.uids))
