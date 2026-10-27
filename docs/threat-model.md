@@ -107,3 +107,8 @@ the database anyway).
     analyst requests wait for the write lock (503 after 30 s).
 11. **`Secure` and HSTS come from the request**, not from a setting. Behind a TLS-terminating
     proxy they need forwarded headers to be trusted.
+12. **Incident write routes (M5a) read the role before the transaction starts.** A session
+    demoted or revoked in that few-millisecond window can still finish one action. Every action
+    is audited with the actor.
+13. **Split-off and merged incidents** get title, times and score recomputed, but `too_common`
+    and `related_incident` keep their old values until the next correlation run.

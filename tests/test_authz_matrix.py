@@ -54,6 +54,25 @@ MATRIX: dict[tuple[str, str], tuple[dict[str, int], dict[str, Any]]] = {
     # the literal "{incident_id}" is an unknown id: a logged-in caller gets 404, not 401/403
     ("GET", "/api/v1/incidents/{incident_id}"): (_session_route(404), {}),
 }
+_INC = "/api/v1/incidents/{incident_id}"
+
+
+def _acting(minimum: str, body: dict[str, Any]) -> tuple[dict[str, int], dict[str, Any]]:
+    """Roles below `minimum` get 403; the rest reach the handler and find no such incident."""
+    need = ROLES.index(minimum)
+    allowed = {r: 403 if ROLES.index(r) < need else 404 for r in ROLES}
+    return {**allowed, "anonymous": 401, "ingest_key": 401}, {"json": body}
+
+
+MATRIX |= {
+    ("POST", f"{_INC}/take"): _acting("analyst", {}),
+    ("POST", f"{_INC}/assign"): _acting("lead", {"owner": None}),
+    ("POST", f"{_INC}/status"): _acting("analyst", {"status": "new"}),
+    ("POST", f"{_INC}/disposition"): _acting("analyst", {"disposition": None}),
+    ("POST", f"{_INC}/comments"): _acting("analyst", {"body": "x"}),
+    ("POST", f"{_INC}/merge"): _acting("lead", {"into": "other"}),
+    ("POST", f"{_INC}/split"): _acting("lead", {"alerts": ["a"]}),
+}
 CASES = [(key, who) for key in MATRIX for who in PRINCIPALS]
 
 

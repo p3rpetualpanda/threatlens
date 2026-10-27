@@ -8,7 +8,7 @@ ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M4 in progress)
+## Current state (v2, M5a done)
 
 - FastAPI app: `/health`, ingest, and JSON login (`POST /api/v1/login`, `/logout`, `GET /me`).
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
@@ -32,6 +32,10 @@ workflow. It does no detection of its own.
   only, no lookups. ATT&CK 20.0 technique names, tactics and links come from the committed
   `app/data/attack_subset.json` (706 techniques), built by `scripts/build_attack_subset.py` from
   MITRE's bundle after a sha256 check; the incident detail lists them under `techniques`.
+- Analyst actions (M5a, JSON only): `POST /api/v1/incidents/{id}/` `take`, `status`, `disposition`,
+  `comments` (analyst+; an analyst works only incidents they own) and `assign`, `merge`, `split`
+  (lead+). Resolving needs a disposition and copies it to alerts without one; reopening is for
+  leads. Each action marks the incident touched and writes an audit row. No HTML yet (M5b).
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per

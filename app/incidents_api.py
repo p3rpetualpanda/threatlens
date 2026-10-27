@@ -39,9 +39,10 @@ def list_incidents(
 def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, Any]:
     with closing(connect(config.DB_PATH)) as conn:
         row = conn.execute(
-            "SELECT id, environment, title, status, disposition, owner, risk_score, first_seen, "
-            "last_seen, related_incident, merged_into, touched, too_common, risk_factors "
-            "FROM incidents WHERE id = ?",
+            "SELECT i.id, i.environment, i.title, i.status, i.disposition, i.owner, "
+            "u.email AS owner_email, i.risk_score, i.first_seen, i.last_seen, "
+            "i.related_incident, i.merged_into, i.touched, i.too_common, i.risk_factors "
+            "FROM incidents i LEFT JOIN users u ON u.id = i.owner WHERE i.id = ?",
             [incident_id],
         ).fetchone()
         if row is None:
@@ -51,6 +52,11 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
             "ia.pinned "
             "FROM incident_alerts ia JOIN alerts a ON a.id = ia.alert_id "
             "WHERE ia.incident_id = ? ORDER BY a.time, a.finding_info_uid",
+            [incident_id],
+        ).fetchall()
+        comments = conn.execute(
+            "SELECT id, author, body, created_at FROM comments WHERE incident_id = ? "
+            "ORDER BY created_at, id",
             [incident_id],
         ).fetchall()
     folded: dict[str, dict[str, Any]] = {}
@@ -74,4 +80,5 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
         "attack_version": attack.version(),
         "alert_count": len(members),
         "alerts": list(folded.values()),
+        "comments": [dict(c) for c in comments],
     }

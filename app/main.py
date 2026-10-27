@@ -13,6 +13,7 @@ from .api import router as ingest_router
 from .auth import router as auth_router
 from .db import connect, migrate
 from .incidents_api import router as incidents_router
+from .workflow_api import router as workflow_router
 
 _CSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 _NO_CSP_PATHS = {"/docs", "/redoc"}  # Swagger UI and ReDoc load scripts from a CDN
@@ -70,6 +71,7 @@ async def database_busy(request: Request, exc: sqlite3.OperationalError) -> JSON
 app.include_router(ingest_router)
 app.include_router(auth_router)
 app.include_router(incidents_router)
+app.include_router(workflow_router)
 
 
 @app.get("/health")

@@ -43,6 +43,15 @@ def _ms(value: Any) -> datetime | None:
         return None
 
 
+def _alert_info(r: sqlite3.Row) -> tuple[str, tuple[datetime, datetime]]:
+    """Title and (first, last) seen of one alerts row."""
+    info = json.loads(r["raw_json"]).get("finding_info", {})
+    fallback = datetime.fromisoformat(r["time"]) if r["time"] else _EPOCH
+    first = _ms(info.get("first_seen_time")) or fallback
+    last = max(first, _ms(info.get("last_seen_time")) or first)
+    return str(info.get("title") or r["rule"]), (first, last)
+
+
 def _load_alerts(
     conn: sqlite3.Connection, environment: str
 ) -> tuple[list[Alert], dict[str, str], Spans]:
@@ -59,12 +68,8 @@ def _load_alerts(
     for r in conn.execute(
         "SELECT id, rule, time, raw_json FROM alerts WHERE environment = ?", [environment]
     ):
-        info = json.loads(r["raw_json"]).get("finding_info", {})
-        fallback = datetime.fromisoformat(r["time"]) if r["time"] else _EPOCH
-        first = _ms(info.get("first_seen_time")) or fallback
-        last = max(first, _ms(info.get("last_seen_time")) or first)
-        titles[r["id"]] = str(info.get("title") or r["rule"])
-        spans[r["id"]] = (first, last)
+        titles[r["id"]], spans[r["id"]] = _alert_info(r)
+        first, last = spans[r["id"]]
         alerts.append(Alert(r["id"], r["rule"], first, last, frozenset(entities.get(r["id"], ()))))
     return alerts, titles, spans
 
@@ -159,7 +164,14 @@ def _insert_incident(conn: sqlite3.Connection, iid: str, environment: str, stamp
     )
 
 
-def _merge(conn: sqlite3.Connection, loser: str, winner: str, stamp: str, now: datetime) -> None:
+def _merge(
+    conn: sqlite3.Connection,
+    loser: str,
+    winner: str,
+    stamp: str,
+    now: datetime,
+    actor: str = "system",
+) -> None:
     lost = conn.execute(
         "SELECT l.owner AS owner, l.disposition AS disposition FROM incidents l, incidents w "
         "WHERE l.id = ? AND w.id = ? AND ((l.owner IS NOT NULL AND w.owner IS NOT NULL "
@@ -201,7 +213,7 @@ def _merge(conn: sqlite3.Connection, loser: str, winner: str, stamp: str, now: d
     detail: dict[str, Any] = {"merged": loser}
     if lost:  # the winner's value was kept; keep the loser's on record
         detail["dropped"] = {k: lost[k] for k in ("owner", "disposition") if lost[k]}
-    record(conn, "system", "incident.merge", winner, detail, now)
+    record(conn, actor, "incident.merge", winner, detail, now)
 
 
 def _sync(
@@ -342,3 +354,37 @@ def rescore(conn: sqlite3.Connection, now: datetime) -> list[str]:
             )
             changed.append(r["id"])
     return changed
+
+
+def refresh(conn: sqlite3.Connection, iid: str, stamp: str) -> None:
+    """Recompute title, seen range and risk from the incident's current alerts (after a manual
+    merge or split, which change membership without a correlation run)."""
+    row = conn.execute("SELECT environment FROM incidents WHERE id = ?", [iid]).fetchone()
+    info = sorted(
+        (
+            (span[0], r["id"], title, span[1])
+            for r in conn.execute(
+                "SELECT a.id, a.rule, a.time, a.raw_json FROM incident_alerts ia "
+                "JOIN alerts a ON a.id = ia.alert_id WHERE ia.incident_id = ?",
+                [iid],
+            )
+            for title, span in [_alert_info(r)]
+        )
+    )
+    if not info:  # an incident with no alerts left has nothing to recompute
+        return
+    risk, factors = _risk(conn, iid, row["environment"], load_risk_config())
+    title = info[0][2] + (f" (+{len(info) - 1} more)" if len(info) > 1 else "")
+    conn.execute(
+        "UPDATE incidents SET title = ?, first_seen = ?, last_seen = ?, risk_score = ?, "
+        "risk_factors = ?, updated_at = ? WHERE id = ?",
+        [
+            title,
+            info[0][0].isoformat(timespec="milliseconds"),
+            max(i[3] for i in info).isoformat(timespec="milliseconds"),
+            risk,
+            json.dumps(factors),
+            stamp,
+            iid,
+        ],
+    )
