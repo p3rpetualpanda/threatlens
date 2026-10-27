@@ -90,6 +90,10 @@ _KEYS = {"viewer": 403, "analyst": 403, "lead": 403, "admin": 200}
 MATRIX[("GET", "/admin/keys")] = ({**_KEYS, "anonymous": 303, "ingest_key": 303}, {})
 MATRIX[("POST", "/admin/keys")] = (_FORM, {})
 MATRIX[("POST", "/admin/keys/{key_id}/revoke")] = (_FORM, {})
+MATRIX[("GET", "/admin/users")] = ({**_KEYS, "anonymous": 303, "ingest_key": 303}, {})
+MATRIX[("POST", "/admin/users")] = (_FORM, {})
+for _a in ("role", "disable", "enable"):
+    MATRIX[("POST", f"/admin/users/{{user_id}}/{_a}")] = (_FORM, {})
 CASES = [(key, who) for key in MATRIX for who in PRINCIPALS]
 
 

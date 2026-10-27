@@ -88,7 +88,8 @@ def assign(
     owner_id = None
     if owner_email is not None:
         target = conn.execute(
-            "SELECT id, role FROM users WHERE email = ?", [owner_email.strip().lower()]
+            "SELECT id, role FROM users WHERE email = ? AND disabled_at IS NULL",
+            [owner_email.strip().lower()],
         ).fetchone()
         if target is None or ROLES.index(target["role"]) < ROLES.index("analyst"):
             raise WorkflowError(422, "owner must be an existing analyst, lead or admin")

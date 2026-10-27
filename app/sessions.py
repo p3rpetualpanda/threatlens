@@ -58,11 +58,12 @@ def create_session(
 def get_session(conn: sqlite3.Connection, token: str, now: datetime) -> Session | None:
     """Return the live session for the token and extend it, or None."""
     row = conn.execute(
-        "SELECT s.id, s.expires_at, s.created_at, s.csrf_token, u.id AS uid, u.email, u.role "
+        "SELECT s.id, s.expires_at, s.created_at, s.csrf_token, u.id AS uid, u.email, u.role, "
+        "u.disabled_at "
         "FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ?",
         [_hash(token)],
     ).fetchone()
-    if row is None:
+    if row is None or row["disabled_at"] is not None:
         return None
     # ISO-8601 strings in one fixed format (UTC, same offset) compare in time order.
     too_old = datetime.fromisoformat(row["created_at"]) + ABSOLUTE_TIMEOUT <= now

@@ -260,3 +260,85 @@ def test_a_refusal_page_is_not_titled_not_found(db: Path) -> None:
     r = c.get("/admin/keys")
     assert r.status_code == 403
     assert "<title>Error - ThreatLens</title>" in r.text
+
+
+def _uid(email: str) -> str:
+    with closing(connect(config.DB_PATH)) as conn:
+        return str(conn.execute("SELECT id FROM users WHERE email = ?", [email]).fetchone()[0])
+
+
+def test_users_page_is_admin_only_and_escapes(db: Path) -> None:
+    for name in ("viewer", "ann", "lead"):
+        assert login(name)[0].get("/admin/users").status_code == 403
+    with closing(connect(config.DB_PATH)) as conn:
+        create_user(conn, f"{XSS}@example.test", PW, "viewer", NOW)
+    page = login("admin")[0].get("/admin/users").text
+    assert ESCAPED in page and "<script>alert" not in page
+
+
+def test_an_admin_creates_a_user_who_can_then_log_in(db: Path) -> None:
+    c, csrf = login("admin")
+    r = post(c, "/admin/users", csrf, email="New@Example.test", password=PW, role="lead")
+    assert r.status_code == 303
+    page = c.get("/admin/users").text
+    assert "account created" in page and "new@example.test" in page
+    assert "account created" not in c.get("/admin/users").text  # shown once
+    assert login("new")[1]
+
+
+def test_bad_new_user_input_is_a_422_that_keeps_the_page(db: Path) -> None:
+    c, csrf = login("admin")
+    for fields in (
+        {"email": "nope", "password": PW, "role": "lead"},
+        {"email": "a@example.test", "password": "short", "role": "lead"},
+        {"email": "a@example.test", "password": PW, "role": "root"},
+        {"email": "ann@example.test", "password": PW, "role": "lead"},  # duplicate
+    ):
+        r = post(c, "/admin/users", csrf, **fields)
+        assert r.status_code == 422 and "Error:" in r.text
+
+
+def test_changing_a_role_and_disabling_through_the_forms(db: Path) -> None:
+    c, csrf = login("admin")
+    ann = _uid("ann@example.test")
+    assert post(c, f"/admin/users/{ann}/role", csrf, role="lead").status_code == 303
+    assert "role changed" in c.get("/admin/users").text
+    ann_client, _ = login("ann")
+    assert ann_client.get("/audit").status_code == 200  # the new role applies at once
+    assert post(c, f"/admin/users/{ann}/disable", csrf).status_code == 303
+    assert ann_client.get("/audit").status_code == 303  # the session ended
+    assert (
+        TestClient(main_mod.app, base_url="http://localhost", follow_redirects=False)
+        .post(
+            "/login",
+            content=urlencode({"email": "ann@example.test", "password": PW}),
+            headers=FORM,
+        )
+        .status_code
+        == 401
+    )
+    assert post(c, f"/admin/users/{ann}/enable", csrf).status_code == 303
+    assert login("ann")[1]
+
+
+def test_account_rules_show_as_error_pages(db: Path) -> None:
+    c, csrf = login("admin")
+    me = _uid("admin@example.test")
+    assert post(c, f"/admin/users/{me}/role", csrf, role="viewer").status_code == 403
+    assert post(c, f"/admin/users/{me}/disable", csrf).status_code == 403
+    assert post(c, "/admin/users/nope/disable", csrf).status_code == 404
+    assert (
+        post(c, f"/admin/users/{_uid('ann@example.test')}/role", csrf, role="x").status_code == 422
+    )
+
+
+def test_account_posts_need_csrf_and_an_admin(db: Path) -> None:
+    ann = _uid("ann@example.test")
+    c, _ = login("admin")
+    assert post(c, f"/admin/users/{ann}/disable", None).status_code == 403
+    lead, lead_csrf = login("lead")
+    assert post(lead, f"/admin/users/{ann}/disable", lead_csrf).status_code == 403
+    assert (
+        post(lead, "/admin/users", lead_csrf, email="x@example.test", password=PW).status_code
+        == 403
+    )

@@ -47,8 +47,11 @@ workflow. It does no detection of its own.
 - Admin pages (M5d): a fixed one-shot message after each good action. `/audit` (lead and admin)
   lists the newest 50 audit rows (leads do not see login rows; admins do) and the hash-chain result (new rows checked on every view; the whole chain every 10 minutes, or every view if the append-only triggers are gone).
   `/admin/keys` (admin only) lists, creates and revokes ingest keys; a new token is shown once,
-  on the page after the create redirect, and never logged (a 60 s HttpOnly cookie carries it across the redirect; the database never holds it; the cookie is `Secure` off localhost). Users and roles pages (slice D) are
-  not built.
+  on the page after the create redirect, and never logged (a 60 s HttpOnly cookie carries it across the redirect; the database never holds it; the cookie is `Secure` off localhost).
+  `/admin/users` (admin only) creates users (admin types the first password), changes roles and
+  disables or re-enables accounts. You cannot change your own account, and the last active admin
+  stays. Disabling ends that user's sessions and blocks login. Every change is audited. No
+  password reset or self-service change yet.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per
   15 min, security headers. `threatlens create-admin EMAIL` makes the first admin (no default

@@ -1,0 +1,33 @@
+{% extends "base.html" %}
+{% block title %}{% if error %}Error - {% endif %}Users - ThreatLens{% endblock %}
+{% block body %}
+<h1>Users</h1>
+{% if error %}<p class="error" role="alert">Error: {{ error }}</p>{% endif %}
+{% if done %}<p role="status">Done: {{ done }}.</p>{% endif %}
+<h2>Create a user</h2>
+<form method="post" action="/admin/users" aria-label="Create user"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Email <input name="email" type="email" maxlength="254" autocomplete="off" required></label>
+<label>Password (12 or more characters; tell them in person) <input name="password" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+<label>Role <select name="role">{% for r in roles %}<option value="{{ r }}"{% if r == "analyst" %} selected{% endif %}>{{ r }}</option>{% endfor %}</select></label>
+<button type="submit">Create user</button></form>
+<h2>Accounts</h2>
+<div class="scroll" role="region" aria-label="Users" tabindex="0">
+<table>
+<caption class="muted">{{ rows|length }} accounts</caption>
+<thead><tr><th scope="col">Email</th><th scope="col">Role</th><th scope="col">Created</th><th scope="col">State</th><th scope="col">Action</th></tr></thead>
+<tbody>
+{% for u in rows %}
+<tr><td>{{ u.email }}</td><td>{{ u.role }}</td><td>{{ u.created_at }}</td>
+<td>{% if u.disabled_at %}disabled {{ u.disabled_at }}{% else %}active{% endif %}</td>
+<td>{% if u.id != user.id %}
+<form method="post" action="/admin/users/{{ u.id|urlencode }}/role"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Role <select name="role">{% for r in roles %}<option value="{{ r }}"{% if r == u.role %} selected{% endif %}>{{ r }}</option>{% endfor %}</select></label>
+<button type="submit" aria-label="Change role of {{ u.email }}">Change role</button></form>
+<form method="post" action="/admin/users/{{ u.id|urlencode }}/{% if u.disabled_at %}enable{% else %}disable{% endif %}"><input type="hidden" name="csrf" value="{{ csrf }}">
+<button type="submit" aria-label="{% if u.disabled_at %}Enable{% else %}Disable{% endif %} {{ u.email }}">{% if u.disabled_at %}Enable{% else %}Disable{% endif %}</button></form>
+{% else %}<span class="muted">you</span>{% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% endblock %}

@@ -21,6 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from . import config, flash
+from .accounts import AccountError, change_role, set_disabled
 from .anchor import AnchorError, check_anchor, load_key
 from .apikeys import create_api_key, revoke_api_key
 from .audit import Checkpoint, append_only, verify_from
@@ -29,7 +30,7 @@ from .db import connect
 from .sessions import Session
 from .ui import _page, _viewer
 from .ui_actions import _gate
-from .users import ROLES
+from .users import ROLES, create_user
 
 router = APIRouter()
 _PAGE = 50
@@ -206,3 +207,88 @@ async def key_revoke(
     except KeyError:
         return _page(request, "error.html", session, 404, message="no such key")
     return RedirectResponse("/admin/keys", status_code=303)
+
+
+def _users(
+    request: Request,
+    session: Session,
+    code: int = 200,
+    error: str | None = None,
+    done: str | None = None,
+) -> Response:
+    with closing(connect(config.DB_PATH)) as conn:
+        rows = conn.execute(
+            "SELECT id, email, role, created_at, disabled_at FROM users "
+            "ORDER BY created_at DESC, email LIMIT 500"
+        ).fetchall()
+    return _page(
+        request, "users.html", session, code, rows=rows, roles=ROLES, error=error, done=done
+    )
+
+
+@router.get("/admin/users", response_class=HTMLResponse, include_in_schema=False)
+def user_list(request: Request) -> Response:
+    session = _need(request, "admin")
+    if isinstance(session, Response):
+        return session
+    return _users(request, session, done=flash.pop(session.csrf_token, "user"))
+
+
+def _account(session: Session, user_id: str, action: str, role: str) -> str:
+    """Run one change; return the message to show. Raises AccountError."""
+    now = datetime.now(UTC)
+    with closing(connect(config.DB_PATH)) as conn:
+        if action == "role":
+            change_role(conn, session.user, user_id, role, now)
+            return "role changed"
+        set_disabled(conn, session.user, user_id, action == "disable", now)
+        return "account disabled" if action == "disable" else "account enabled"
+
+
+def _create_user(session: Session, email: str, password: str, role: str) -> None:
+    with closing(connect(config.DB_PATH)) as conn:
+        create_user(conn, email, password, role, datetime.now(UTC), session.user.email)
+
+
+@router.post("/admin/users", include_in_schema=False)
+async def user_create(request: Request) -> Response:
+    gate = await _gate(request, "admin")
+    if isinstance(gate, Response):
+        return gate
+    session, form = gate
+    email, password, role = (form.get(k, [""])[0] for k in ("email", "password", "role"))
+    try:
+        await run_in_threadpool(_create_user, session, email, password, role)
+    except ValueError as exc:
+        return await run_in_threadpool(_users, request, session, 422, str(exc))
+    await run_in_threadpool(flash.put, session.csrf_token, "user", "account created")
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+async def _change(request: Request, user_id: str, action: str) -> Response:
+    gate = await _gate(request, "admin")
+    if isinstance(gate, Response):
+        return gate
+    session, form = gate
+    role = form.get("role", [""])[0]
+    try:
+        message = await run_in_threadpool(_account, session, user_id, action, role)
+    except AccountError as exc:
+        return await run_in_threadpool(_users, request, session, exc.status, exc.message)
+    await run_in_threadpool(flash.put, session.csrf_token, "user", message)
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+def _register_change(action: str) -> None:
+    async def handler(
+        request: Request, user_id: Annotated[str, PathParam(max_length=64)]
+    ) -> Response:
+        return await _change(request, user_id, action)
+
+    router.add_api_route(
+        f"/admin/users/{{user_id}}/{action}", handler, methods=["POST"], include_in_schema=False
+    )
+
+
+for _action in ("role", "disable", "enable"):
+    _register_change(_action)

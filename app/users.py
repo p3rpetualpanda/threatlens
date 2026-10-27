@@ -52,7 +52,8 @@ def create_user(
     if len(password) > MAX_PASSWORD:
         raise ValueError(f"password must be at most {MAX_PASSWORD} characters")
     user_id = str(uuid.uuid4())
-    password_hash = _hasher.hash(password)
+    with _gate:  # admin-page creates run on request threads: same memory cap as a login
+        password_hash = _hasher.hash(password)
     try:
         try:
             conn.execute(
@@ -73,7 +74,7 @@ def create_user(
 def authenticate(conn: sqlite3.Connection, email: str, password: str) -> User | None:
     """Return the user if the password matches, else None (same answer for unknown email)."""
     row = conn.execute(
-        "SELECT id, email, role, password_hash FROM users WHERE email = ?",
+        "SELECT id, email, role, password_hash, disabled_at FROM users WHERE email = ?",
         [email.strip().lower()],
     ).fetchone()
     try:
@@ -81,6 +82,6 @@ def authenticate(conn: sqlite3.Connection, email: str, password: str) -> User | 
             _hasher.verify(_DUMMY_HASH if row is None else row["password_hash"], password)
     except (VerificationError, InvalidHashError):
         return None
-    if row is None:
+    if row is None or row["disabled_at"] is not None:  # same time cost as a wrong password
         return None
     return User(row["id"], row["email"], row["role"])
