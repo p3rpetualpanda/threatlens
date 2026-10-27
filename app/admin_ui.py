@@ -7,8 +7,6 @@ out of caches and it is never written to the audit log.
 
 from __future__ import annotations
 
-import sqlite3
-import time
 import unicodedata
 from contextlib import closing
 from datetime import UTC, datetime
@@ -22,6 +20,7 @@ from starlette.concurrency import run_in_threadpool
 from . import config, flash
 from .apikeys import create_api_key, revoke_api_key
 from .audit import verify
+from .auth import _LOCAL_HOSTS
 from .db import connect
 from .sessions import Session
 from .ui import _page, _viewer
@@ -32,26 +31,6 @@ router = APIRouter()
 _PAGE = 50
 _MAX_NAME = 100
 _NEWKEY = "threatlens_newkey"  # carries a new token across the redirect, for 60 s
-_VERIFY_TTL = 30.0
-_verified_at: tuple[float, str, int, int | None] | None = None  # time, db, last id, result
-
-
-def _verified(conn: sqlite3.Connection) -> int | None:
-    """verify() walks the whole chain, so reuse a result for 30 s while the log is unchanged.
-
-    shortcut: an edit made in the middle of the chain shows up within 30 s, not at once, and a
-    lead reloading /audit can no longer hold the database busy; move to incremental checking
-    once the log reaches hundreds of thousands of rows.
-    """
-    global _verified_at
-    last = conn.execute("SELECT COALESCE(MAX(id), 0) FROM audit_log").fetchone()[0]
-    db = str(config.DB_PATH)
-    now = time.monotonic()
-    if _verified_at and _verified_at[1:3] == (db, last) and now - _verified_at[0] < _VERIFY_TTL:
-        return _verified_at[3]
-    result = verify(conn)
-    _verified_at = (now, db, last, result)
-    return result
 
 
 def _need(request: Request, minimum: str) -> Session | Response:
@@ -71,7 +50,9 @@ def audit_log(
     if isinstance(session, Response):
         return session
     with closing(connect(config.DB_PATH)) as conn:
-        broken = _verified(conn)
+        # shortcut: walks the whole chain per view (0.24 s per 50,000 rows, readers do not block
+        # writers in WAL); check incrementally once the log passes a few hundred thousand rows
+        broken = verify(conn)
         rows = conn.execute(
             "SELECT id, at, actor, action, target, detail FROM audit_log "
             "WHERE (?1 IS NULL OR id < ?1) ORDER BY id DESC LIMIT ?2",
@@ -156,7 +137,7 @@ async def key_create(request: Request) -> Response:
         path="/admin/keys",
         httponly=True,
         samesite="strict",
-        secure=request.url.scheme == "https",
+        secure=request.url.hostname not in _LOCAL_HOSTS,  # same rule as the session cookie
     )
     return out
 

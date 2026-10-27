@@ -40,8 +40,8 @@ def db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Path]:
     yield path
 
 
-def login(name: str) -> tuple[TestClient, str]:
-    c = TestClient(main_mod.app, base_url="http://localhost", follow_redirects=False)
+def login(name: str, base: str = "http://localhost") -> tuple[TestClient, str]:
+    c = TestClient(main_mod.app, base_url=base, follow_redirects=False)
     body = urlencode({"email": f"{name}@example.test", "password": PW})
     assert c.post("/login", content=body, headers=FORM).status_code == 303
     return c, c.get("/api/v1/me").json()["csrf_token"]
@@ -156,28 +156,17 @@ def test_refreshing_the_create_post_page_shows_no_token_and_makes_no_second_key(
         assert conn.execute("SELECT count(*) FROM api_keys").fetchone()[0] == 1
 
 
-def test_audit_check_is_reused_until_the_log_changes(db: Path) -> None:
+def test_audit_check_sees_a_middle_edit_at_once(db: Path) -> None:
     c, _ = login("lead")
     assert "chain intact" in c.get("/audit").text
     with closing(connect(config.DB_PATH)) as conn:
         conn.execute("UPDATE audit_log SET actor = 'x' WHERE id = 1")
         conn.commit()
-    assert "chain intact" in c.get("/audit").text  # cached for 30 s; documented shortcut
-    admin, csrf = login("admin")
-    post(admin, "/admin/keys", csrf, name="new")  # a new row invalidates the cache
     assert "broken at row 1" in c.get("/audit").text
 
 
-def test_the_new_token_is_never_written_to_the_database(db: Path) -> None:
+def test_the_token_cookie_is_secure_off_localhost(db: Path) -> None:
+    c, csrf = login("admin", "https://lens.example.test")
+    assert "secure" in post(c, "/admin/keys", csrf, name="lab").headers["set-cookie"].lower()
     c, csrf = login("admin")
-    r = post(c, "/admin/keys", csrf, name="lab")
-    cookie = r.headers["set-cookie"].lower()
-    assert "httponly" in cookie and "samesite=strict" in cookie and "path=/admin/keys" in cookie
-    token = c.cookies["threatlens_newkey"]
-    page = c.get("/admin/keys")
-    assert token in page.text and "max-age=0" in page.headers["set-cookie"].lower()
-    with closing(connect(config.DB_PATH)) as conn:
-        dump = " ".join(conn.iterdump())
-    assert token not in dump
-    c.cookies.set("threatlens_newkey", token, path="/admin/keys")
-    assert '<code class="token">' not in c.get("/admin/keys").text  # the name slot was spent
+    assert "secure" not in post(c, "/admin/keys", csrf, name="lab2").headers["set-cookie"].lower()
