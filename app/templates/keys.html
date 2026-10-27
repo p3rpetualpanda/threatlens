@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block title %}{% if error %}Error - {% endif %}API keys - ThreatLens{% endblock %}
+{% block body %}
+<h1>API keys</h1>
+{% if error %}<p class="error" role="alert">Error: {{ error }}</p>{% endif %}
+{% if token %}
+<div class="notice" role="status">
+<p>Key "{{ key_name }}" created. Copy the token now; it is not shown again.</p>
+<p><code class="token">{{ token }}</code></p>
+</div>
+{% endif %}
+<h2>Create an ingest key</h2>
+<form method="post" action="/admin/keys" aria-label="Create key"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Name <input name="name" maxlength="100" required></label><button type="submit">Create key</button></form>
+<h2>Keys</h2>
+{% if rows %}
+<div class="scroll" role="region" aria-label="Keys" tabindex="0">
+<table>
+<caption class="muted">{{ rows|length }} keys</caption>
+<thead><tr><th scope="col">Name</th><th scope="col">Scope</th><th scope="col">Created</th><th scope="col">State</th><th scope="col">Action</th></tr></thead>
+<tbody>
+{% for k in rows %}
+<tr><td>{{ k.name }}</td><td>{{ k.scope }}</td><td>{{ k.created_at }}</td>
+<td>{% if k.revoked_at %}revoked {{ k.revoked_at }}{% else %}active{% endif %}</td>
+<td>{% if not k.revoked_at %}<form method="post" action="/admin/keys/{{ k.id|urlencode }}/revoke"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit" aria-label="Revoke {{ k.name }}">Revoke</button></form>{% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% else %}<p>No keys yet.</p>{% endif %}
+{% endblock %}

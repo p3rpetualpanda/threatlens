@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
 
 from . import config
+from .admin_ui import router as admin_ui_router
 from .api import router as ingest_router
 from .auth import router as auth_router
 from .db import connect, migrate
@@ -78,6 +79,7 @@ app.include_router(incidents_router)
 app.include_router(workflow_router)
 app.include_router(ui_router)
 app.include_router(ui_actions_router)
+app.include_router(admin_ui_router)
 
 
 @app.get("/health")

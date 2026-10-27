@@ -4,6 +4,7 @@
 <p><a href="/">&larr; All incidents</a></p>
 <h1>{{ inc.title }}</h1>
 {% if error %}<p class="error" role="alert">Error: {{ error }}</p>{% endif %}
+{% if notice %}<p class="notice" role="status">{{ notice }}</p>{% endif %}
 <dl class="facts">
 <div><dt>Status</dt><dd><span class="badge">{{ inc.status }}</span></dd></div>
 <div><dt>Owner</dt><dd>{{ inc.owner_email or "unassigned" }}</dd></div>

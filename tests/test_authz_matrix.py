@@ -88,6 +88,12 @@ _FORM = {**dict.fromkeys(ROLES, 403), "anonymous": 303, "ingest_key": 303}
 for _a in ("take", "assign", "status", "disposition", "comment", "merge", "split"):
     MATRIX[("POST", f"/incidents/{{incident_id}}/{_a}")] = (_FORM, {})
 MATRIX[("POST", "/logout")] = (_FORM, {})
+_AUDIT_ROLES = {"viewer": 403, "analyst": 403, "lead": 200, "admin": 200}
+MATRIX[("GET", "/audit")] = ({**_AUDIT_ROLES, "anonymous": 303, "ingest_key": 303}, {})
+_KEYS = {"viewer": 403, "analyst": 403, "lead": 403, "admin": 200}
+MATRIX[("GET", "/admin/keys")] = ({**_KEYS, "anonymous": 303, "ingest_key": 303}, {})
+MATRIX[("POST", "/admin/keys")] = (_FORM, {})
+MATRIX[("POST", "/admin/keys/{key_id}/revoke")] = (_FORM, {})
 CASES = [(key, who) for key in MATRIX for who in PRINCIPALS]
 
 
