@@ -20,7 +20,7 @@ test:
 check: lint typecheck security test
 
 demo:
-	uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
+	THREATLENS_DOCS=1 uv run uvicorn app.main:app --host 127.0.0.1 --port 8000
 
 clean:
 	rm -rf .pytest_cache .mypy_cache .ruff_cache .coverage htmlcov

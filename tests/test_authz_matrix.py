@@ -37,10 +37,6 @@ def _session_route(status: int) -> dict[str, int]:
 # (method, path) -> (expected status per principal, request kwargs)
 MATRIX: dict[tuple[str, str], tuple[dict[str, int], dict[str, Any]]] = {
     ("GET", "/health"): (_all(200), {}),
-    ("GET", "/docs"): (_all(200), {}),
-    ("GET", "/redoc"): (_all(200), {}),
-    ("GET", "/openapi.json"): (_all(200), {}),
-    ("GET", "/docs/oauth2-redirect"): (_all(200), {}),
     # An empty list is a valid, harmless ingest; only a bearer key may send it.
     ("POST", "/api/v1/findings"): (
         {**dict.fromkeys(ROLES, 401), "anonymous": 401, "ingest_key": 200},
@@ -141,6 +137,13 @@ def test_every_route_has_a_matrix_row() -> None:
         f"routes without a row: {sorted(routes - set(MATRIX))}; "
         f"rows without a route: {sorted(set(MATRIX) - routes)}"
     )
+
+
+@pytest.mark.parametrize("path", ["/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"])
+def test_api_docs_are_not_routes_by_default(setup: str, path: str) -> None:
+    # off unless THREATLENS_DOCS=1 (see app.config), so every principal gets a plain 404
+    for who in PRINCIPALS:
+        assert _call(who, "GET", path, {}, setup).status_code == 404
 
 
 @pytest.mark.parametrize(("route", "who"), CASES, ids=[f"{m} {p} {w}" for (m, p), w in CASES])

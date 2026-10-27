@@ -36,6 +36,9 @@ app = FastAPI(
     description="Explainable blue-team detection and incident response. v2 in progress.",
     version="0.1.0",
     lifespan=lifespan,
+    docs_url="/docs" if config.DOCS_ENABLED else None,
+    redoc_url="/redoc" if config.DOCS_ENABLED else None,
+    openapi_url="/openapi.json" if config.DOCS_ENABLED else None,
 )
 
 

@@ -87,23 +87,26 @@ the database anyway).
 
 ## Known gaps (accepted for now)
 
-1. **Audit log is not tamper-proof:** the hash chain is unkeyed and nothing blocks UPDATE or
-   DELETE. A writer of the database file can rewrite rows and recompute every later hash, or
-   cut rows off the tail, and `verify` will not notice. Upgrade path: HMAC with a key held
-   outside the database, `BEFORE UPDATE/DELETE` triggers, and an offsite copy of the latest hash.
+1. **Audit log is not tamper-proof against a writer of the database file:** migration 008
+   blocks UPDATE and DELETE through SQL, but the hash chain is unkeyed. Someone who can write
+   the file can drop the triggers, rewrite rows and recompute every later hash, or cut rows off
+   the tail, and `verify` will not notice (the page does notice missing triggers). Upgrade
+   path: HMAC with a key held outside the database, and an offsite copy of the latest hash.
 2. **Lockout as a weapon:** anyone can lock a known username for 15 minutes by failing five
    times. Chosen over letting an attacker guess freely.
 3. **IP key behind a proxy:** the lock uses the socket peer address. Behind a reverse proxy
    every client looks the same until forwarded addresses are trusted.
 4. **No rate limit on the ingest 401 path.** Keys are 256-bit, so guessing is not feasible,
    but the endpoint can still be hammered.
-5. **No user-management routes or account disable yet.** Users come from the CLI only; admin
-   routes arrive with the M5 UI. Until then nothing (API or CLI) can revoke a session, disable
-   an account or reset a password except editing the SQLite file.
+5. **No user-management routes or account disable yet.** Admins can create and revoke API
+   keys in the UI, but users come from the CLI only. Nothing (API, UI or CLI) can revoke a
+   session, disable an account or reset a password except editing the SQLite file. Planned as
+   slice D of M5d.
 6. **Stored XSS:** `tests/test_ui.py` renders a hostile title, rule, host, user, comment and
    author on the queue and detail pages and asserts they are escaped. Alert detail (M5c) adds its own.
-7. **`/docs` and `/redoc` have no CSP** because Swagger UI loads scripts from a CDN. Turn
-   them off in production.
+7. **`/docs`, `/redoc` and `/openapi.json` are off by default** (`THREATLENS_DOCS=1` turns
+   them on, as `make demo` does). When on, they have no CSP because Swagger UI loads scripts
+   from a CDN, so do not enable them in production.
 8. **Login body cap trusts `Content-Length`;** a chunked body skips it. Put a body limit on the
    reverse proxy.
 9. **Unhandled 500s skip the security headers** (Starlette answers them outside the

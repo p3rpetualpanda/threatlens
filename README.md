@@ -74,7 +74,7 @@ uv sync
 make demo
 ```
 
-Open `http://127.0.0.1:8000/docs` for the API documentation.
+Open `http://127.0.0.1:8000/docs` for the API documentation. `make demo` turns the docs on; they are off by default (set `THREATLENS_DOCS=1` to enable them).
 
 Import beacon findings (set `THREATLENS_DB_PATH` first, or pass `--db`):
 

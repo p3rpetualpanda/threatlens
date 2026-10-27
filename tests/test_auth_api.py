@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from collections.abc import Iterator
 from contextlib import closing
 from datetime import UTC, datetime
@@ -179,7 +180,7 @@ def test_another_sessions_csrf_token_is_rejected(client: TestClient) -> None:
     assert client.post(LOGOUT, headers={"X-CSRF-Token": other_csrf}).status_code == 403
 
 
-def test_security_headers_everywhere_but_docs(client: TestClient) -> None:
+def test_security_headers_everywhere(client: TestClient) -> None:
     for path in ("/health", ME):
         h = client.get(path).headers
         assert "default-src 'self'" in h["content-security-policy"]
@@ -189,10 +190,23 @@ def test_security_headers_everywhere_but_docs(client: TestClient) -> None:
         assert h["referrer-policy"] == "same-origin"
         assert h["cache-control"] == "no-store"
         assert "strict-transport-security" not in h  # plain http
-    docs = client.get("/docs")
-    assert docs.status_code == 200
-    assert "content-security-policy" not in docs.headers  # Swagger UI loads from a CDN
-    assert docs.headers["x-content-type-options"] == "nosniff"
+
+
+def test_api_docs_are_off_by_default_and_on_with_the_setting() -> None:
+    import subprocess
+    import sys
+
+    code = (
+        "from fastapi.testclient import TestClient; from app.main import app; "
+        "r = TestClient(app).get('/docs'); "
+        "print(r.status_code, 'content-security-policy' in r.headers)"
+    )
+    for flag, expected in (("1", "200 False"), ("", "404 False")):
+        env = {**os.environ, "THREATLENS_DOCS": flag}
+        out = subprocess.run(  # noqa: S603
+            [sys.executable, "-c", code], env=env, capture_output=True, text=True, check=True
+        )
+        assert out.stdout.strip() == expected
 
 
 def test_locked_database_is_503(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
