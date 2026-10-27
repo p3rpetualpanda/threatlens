@@ -115,3 +115,11 @@ the database anyway).
 14. **Form login has no CSRF token.** It refuses a request whose `Origin` header names another
     host (browsers always send it on a cross-site POST) and sets only a fresh session. A client
     that sends no `Origin` is not a browser attack.
+
+15. **Form actions (M5c).** HTML forms cannot send the CSRF header, so `POST /incidents/{id}/*`
+    and `POST /logout` compare a hidden `csrf` field to the session token (constant time, empty
+    never matches) and refuse a cross-site `Origin`. Session first, then body: an anonymous post
+    is redirected before any body is read. Body caps: 4 KB, 32 KB for comment and split. Refusals
+    re-render a page; no user text goes into a URL. Proof: `tests/test_ui_actions.py`.
+16. **Alert page.** `/alerts/{uid}` shows the stored finding to any logged-in role and is not
+    scoped by environment, like the incident pages. Revisit if environments become access-scoped.

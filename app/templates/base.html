@@ -8,7 +8,7 @@
 </head>
 <body>
 <a class="skip" href="#main">Skip to content</a>
-<header><a href="/">ThreatLens</a>{% if user %}<span class="muted">{{ user.email }} ({{ user.role }})</span>{% endif %}</header>
+<header><a href="/">ThreatLens</a>{% if user %}<span class="muted">{{ user.email }} ({{ user.role }})</span><form method="post" action="/logout"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Sign out</button></form>{% endif %}</header>
 <main id="main">
 {% block body %}{% endblock %}
 </main>

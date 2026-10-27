@@ -6,6 +6,7 @@ inline script or style, so the CSP in app.main (default-src 'self') stays as it 
 
 from __future__ import annotations
 
+import json
 from contextlib import closing
 from pathlib import Path
 from typing import Annotated, Any, Literal
@@ -25,6 +26,7 @@ from .enrich import ip_class
 from .incidents_api import get_incident
 from .risk import label, load_risk_config
 from .sessions import Session
+from .users import ROLES
 
 _HERE = Path(__file__).resolve().parent
 _templates = Jinja2Templates(directory=str(_HERE / "templates"))
@@ -43,7 +45,10 @@ def _page(
     request: Request, name: str, session: Session | None, code: int = 200, **ctx: Any
 ) -> Response:
     user = session.user if session else None
-    return _templates.TemplateResponse(request, name, {"user": user, **ctx}, status_code=code)
+    csrf = session.csrf_token if session else None
+    return _templates.TemplateResponse(
+        request, name, {"user": user, "csrf": csrf, **ctx}, status_code=code
+    )
 
 
 @router.get("/static/app.css", include_in_schema=False)
@@ -56,20 +61,31 @@ def login_form(request: Request) -> Response:
     return _page(request, "login.html", None)
 
 
+def cross_site(request: Request) -> bool:
+    """True for a form post from another origin (a missing Origin header is allowed)."""
+    origin = request.headers.get("origin")
+    return bool(origin) and urlsplit(origin).netloc != request.headers.get("host")
+
+
+async def read_form(request: Request, limit: int = _MAX_FORM) -> dict[str, list[str]] | None:
+    """Parse a urlencoded body; None when it is over `limit` bytes."""
+    raw = bytearray()
+    # the middleware cap trusts Content-Length; a chunked body skips it
+    async for chunk in request.stream():
+        raw += chunk
+        if len(raw) > limit:
+            return None
+    return parse_qs(raw.decode("utf-8", "replace"))
+
+
 @router.post("/login", include_in_schema=False)
 async def login_submit(request: Request) -> Response:
-    origin = request.headers.get("origin")
-    if origin and urlsplit(origin).netloc != request.headers.get("host"):
+    if cross_site(request):
         # a cross-site form post could otherwise sign the victim into the attacker's account
         return _page(request, "login.html", None, 403, error="cross-site login refused")
-    raw = bytearray()
-    async for (
-        chunk
-    ) in request.stream():  # the middleware cap trusts Content-Length; chunked skips it
-        raw += chunk
-        if len(raw) > _MAX_FORM:
-            return _page(request, "login.html", None, 413, error="request too large")
-    form = parse_qs(raw.decode("utf-8", "replace"))
+    form = await read_form(request)
+    if form is None:
+        return _page(request, "login.html", None, 413, error="request too large")
     try:
         body = LoginBody(email=form.get("email", [""])[0], password=form.get("password", [""])[0])
         result = await run_in_threadpool(login, body, request)  # argon2 must not block the loop
@@ -150,23 +166,78 @@ def _entities(conn: Any, incident_id: str, environment: str) -> list[dict[str, s
     return out
 
 
-@router.get("/incidents/{incident_id}", response_class=HTMLResponse, include_in_schema=False)
-def incident(request: Request, incident_id: Annotated[str, PathParam(max_length=64)]) -> Response:
-    session = _viewer(request)
-    if session is None:
-        return RedirectResponse("/login", status_code=303)
+def render_incident(
+    request: Request, session: Session, incident_id: str, code: int = 200, error: str | None = None
+) -> Response:
+    """The incident page; `error` and `code` carry a refused action back to the same page."""
     try:
         inc = get_incident(incident_id)
     except HTTPException as exc:
         return _page(request, "error.html", session, exc.status_code, message=exc.detail)
     if inc["merged_into"]:  # the queue hides merged incidents; follow the merge
+        if error:  # a stale tab acted on the merged one: show the message on the survivor
+            return render_incident(request, session, inc["merged_into"], code, error)
         return RedirectResponse(f"/incidents/{quote(inc['merged_into'])}", status_code=303)
     with closing(connect(config.DB_PATH)) as conn:
         timeline = conn.execute(
-            "SELECT a.time, a.rule, a.severity, a.technique, ia.pinned FROM incident_alerts ia "
+            "SELECT a.finding_info_uid AS uid, a.time, a.rule, a.severity, a.technique, "
+            "ia.pinned FROM incident_alerts ia "
             "JOIN alerts a ON a.id = ia.alert_id WHERE ia.incident_id = ? "
             "ORDER BY a.time, a.finding_info_uid",
             [incident_id],
         ).fetchall()
         ents = _entities(conn, incident_id, inc["environment"])
-    return _page(request, "incident.html", session, inc=inc, entities=ents, timeline=timeline)
+    rank = ROLES.index(session.user.role)  # buttons are a convenience; app.workflow enforces
+    live = inc["status"] != "resolved"  # a resolved incident only allows a lead to reopen it
+    work = rank >= 1 and (inc["owner"] == session.user.id or rank >= 2)
+    opts = []
+    if live and work:
+        opts.append("resolved")
+        if inc["owner"] and inc["status"] != "in_progress":
+            opts.append("in_progress")
+    elif not live and rank >= 2:
+        opts.append("in_progress")
+    can = {
+        "take": live and rank >= 1 and not inc["owner"],
+        "work": live and work,
+        "comment": rank >= 1,
+        "lead": live and rank >= 2,
+        "status_opts": opts,
+    }
+    return _page(
+        request,
+        "incident.html",
+        session,
+        code,
+        inc=inc,
+        entities=ents,
+        timeline=timeline,
+        can=can,
+        error=error,
+    )
+
+
+@router.get("/incidents/{incident_id}", response_class=HTMLResponse, include_in_schema=False)
+def incident(request: Request, incident_id: Annotated[str, PathParam(max_length=64)]) -> Response:
+    session = _viewer(request)
+    if session is None:
+        return RedirectResponse("/login", status_code=303)
+    return render_incident(request, session, incident_id)
+
+
+@router.get("/alerts/{uid:path}", response_class=HTMLResponse, include_in_schema=False)
+def alert(request: Request, uid: str) -> Response:  # :path, so a uid containing "/" works
+    session = _viewer(request)
+    if session is None:
+        return RedirectResponse("/login", status_code=303)
+    with closing(connect(config.DB_PATH)) as conn:
+        found = conn.execute(
+            "SELECT rule, severity, time, environment, raw_json FROM alerts "
+            "WHERE finding_info_uid = ?",
+            [uid],
+        ).fetchall()
+    if len(found) != 1:  # none, or the same uid in two environments: do not guess
+        return _page(request, "error.html", session, 404, message="no such alert")
+    row = found[0]
+    raw = json.dumps(json.loads(row["raw_json"]), indent=2, sort_keys=True)
+    return _page(request, "alert.html", session, uid=uid, alert=dict(row), raw=raw)

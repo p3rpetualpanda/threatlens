@@ -14,6 +14,7 @@ from .auth import router as auth_router
 from .db import connect, migrate
 from .incidents_api import router as incidents_router
 from .ui import router as ui_router
+from .ui_actions import router as ui_actions_router
 from .workflow_api import router as workflow_router
 
 _CSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
@@ -74,6 +75,7 @@ app.include_router(auth_router)
 app.include_router(incidents_router)
 app.include_router(workflow_router)
 app.include_router(ui_router)
+app.include_router(ui_actions_router)
 
 
 @app.get("/health")

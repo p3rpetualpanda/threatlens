@@ -80,7 +80,14 @@ MATRIX |= {
     ("GET", "/static/app.css"): (_all(200), {}),
     ("GET", "/"): (_PAGE, {}),
     ("GET", "/incidents/{incident_id}"): ({**_PAGE, **dict.fromkeys(ROLES, 404)}, {}),
+    ("GET", "/alerts/{uid:path}"): ({**_PAGE, **dict.fromkeys(ROLES, 404)}, {}),
 }
+# Form posts carry a hidden csrf field, not the header, so every logged-in role is refused here
+# (403 for csrf, or for role); tests/test_ui_actions.py covers what happens with a valid field.
+_FORM = {**dict.fromkeys(ROLES, 403), "anonymous": 303, "ingest_key": 303}
+for _a in ("take", "assign", "status", "disposition", "comment", "merge", "split"):
+    MATRIX[("POST", f"/incidents/{{incident_id}}/{_a}")] = (_FORM, {})
+MATRIX[("POST", "/logout")] = (_FORM, {})
 CASES = [(key, who) for key in MATRIX for who in PRINCIPALS]
 
 

@@ -3,6 +3,7 @@
 {% block body %}
 <p><a href="/">&larr; All incidents</a></p>
 <h1>{{ inc.title }}</h1>
+{% if error %}<p class="error" role="alert">Error: {{ error }}</p>{% endif %}
 <p>
 Status <span class="badge">{{ inc.status }}</span>
 Owner {{ inc.owner_email or "unassigned" }}
@@ -12,6 +13,35 @@ Environment {{ inc.environment }}
 <p>Risk <strong>{% if inc.risk_score is none %}not scored{% else %}{{ inc.risk_score }}{% endif %}</strong>
 {% if inc.risk_label %}<span class="badge">{{ inc.risk_label }}</span>{% endif %}
 <span class="muted">{{ inc.first_seen }} to {{ inc.last_seen }}</span></p>
+
+{% if can.take or can.work or can.lead or can.status_opts or can.comment %}
+<h2>Actions</h2>
+{% if can.take %}
+<form method="post" action="/incidents/{{ inc.id }}/take" aria-label="Take incident"><input type="hidden" name="csrf" value="{{ csrf }}"><button type="submit">Take incident</button></form>
+{% endif %}
+{% if can.status_opts %}
+<form method="post" action="/incidents/{{ inc.id }}/status" aria-label="Set status"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Status <select name="status">{% for o in can.status_opts %}<option>{{ o }}</option>{% endfor %}</select></label><button type="submit">Set status</button></form>
+{% endif %}
+{% if can.work %}
+<form method="post" action="/incidents/{{ inc.id }}/disposition" aria-label="Set disposition"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Disposition <select name="disposition"><option value="">none</option><option>true_positive</option><option>false_positive</option><option>benign_true_positive</option></select></label><button type="submit">Set disposition</button></form>
+{% endif %}
+{% if can.comment %}
+<form method="post" action="/incidents/{{ inc.id }}/comment" aria-label="Add comment"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Comment <textarea name="body" rows="3" maxlength="4000" required></textarea></label><button type="submit">Add comment</button></form>
+{% endif %}
+{% if can.lead %}
+<form method="post" action="/incidents/{{ inc.id }}/assign" aria-label="Assign incident"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Assign to (email, blank to unassign) <input type="email" name="owner" maxlength="254"></label><button type="submit">Assign incident</button></form>
+<form method="post" action="/incidents/{{ inc.id }}/merge" aria-label="Merge incident"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Merge this incident into (incident id) <input name="into" maxlength="64" required></label><button type="submit">Merge incident</button></form>
+<form method="post" action="/incidents/{{ inc.id }}/split" aria-label="Split incident"><input type="hidden" name="csrf" value="{{ csrf }}">
+<fieldset><legend>Move alerts to a new incident (leave at least one behind)</legend>
+{% for a in timeline %}<label><input type="checkbox" name="alert" value="{{ a.uid }}"> {{ a.rule }} <span class="muted">{{ a.time }}</span></label>{% endfor %}
+</fieldset><button type="submit">Split incident</button></form>
+{% endif %}
+{% endif %}
 
 <h2>Risk factors</h2>
 {% if inc.risk_factors %}
@@ -42,7 +72,7 @@ Environment {{ inc.environment }}
 
 <h2>Timeline</h2>
 <ol class="timeline">
-{% for a in timeline %}<li><time datetime="{{ a.time }}">{{ a.time }}</time> {{ a.rule }} <span class="badge">{{ a.severity }}</span>{% if a.technique %} {{ a.technique }}{% endif %}{% if a.pinned %} (pinned){% endif %}</li>{% endfor %}
+{% for a in timeline %}<li><time datetime="{{ a.time }}">{{ a.time }}</time> <a href="/alerts/{{ a.uid|urlencode }}">{{ a.rule }}</a> <span class="badge">{{ a.severity }}</span>{% if a.technique %} {{ a.technique }}{% endif %}{% if a.pinned %} (pinned){% endif %}</li>{% endfor %}
 </ol>
 
 <h2>Comments</h2>
