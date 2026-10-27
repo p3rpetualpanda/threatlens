@@ -180,6 +180,7 @@ def test_service_errors_show_on_the_page_not_as_500(ctx: Ctx) -> None:
     stale = act(bob, bcsrf, ctx.a, "take")  # already owned
 
     assert stale.status_code == 409 and "<form" in stale.text
+    assert "<title>Error - " in stale.text  # a screen reader hears the title change
 
     other = act(bob, bcsrf, ctx.a, "disposition", disposition="false_positive")
 

@@ -1,15 +1,15 @@
 {% extends "base.html" %}
-{% block title %}{{ inc.title }} - ThreatLens{% endblock %}
+{% block title %}{% if error %}Error - {% endif %}{{ inc.title }} - ThreatLens{% endblock %}
 {% block body %}
 <p><a href="/">&larr; All incidents</a></p>
 <h1>{{ inc.title }}</h1>
 {% if error %}<p class="error" role="alert">Error: {{ error }}</p>{% endif %}
-<p>
-Status <span class="badge">{{ inc.status }}</span>
-Owner {{ inc.owner_email or "unassigned" }}
-Disposition {{ inc.disposition or "none" }}
-Environment {{ inc.environment }}
-</p>
+<dl class="facts">
+<div><dt>Status</dt><dd><span class="badge">{{ inc.status }}</span></dd></div>
+<div><dt>Owner</dt><dd>{{ inc.owner_email or "unassigned" }}</dd></div>
+<div><dt>Disposition</dt><dd>{{ inc.disposition or "none" }}</dd></div>
+<div><dt>Environment</dt><dd>{{ inc.environment }}</dd></div>
+</dl>
 <p>Risk <strong>{% if inc.risk_score is none %}not scored{% else %}{{ inc.risk_score }}{% endif %}</strong>
 {% if inc.risk_label %}<span class="badge">{{ inc.risk_label }}</span>{% endif %}
 <span class="muted">{{ inc.first_seen }} to {{ inc.last_seen }}</span></p>
