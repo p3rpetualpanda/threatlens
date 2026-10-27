@@ -1,0 +1,7 @@
+# Correlation tuning (spec 6.4). Alerts link when they share a host, user or src_ip
+# that is not ignored and their time ranges are within link_window_minutes.
+link_window_minutes: 120
+ignored_users: [system, local service, network service, anonymous logon, "-"]
+ignore_machine_accounts: true   # users ending in "$"
+auto_share: 0.2                 # entity in more than this share of an environment's alerts...
+auto_min_alerts: 50             # ...once the environment has at least this many alerts

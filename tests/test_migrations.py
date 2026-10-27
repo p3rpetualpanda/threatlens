@@ -11,7 +11,7 @@ from app.db import _ordered, connect, migrate
 
 def test_migrate_creates_schema_and_version(tmp_path: Path) -> None:
     db = tmp_path / "t.db"
-    assert migrate(db) == 4
+    assert migrate(db) == 5
     with closing(connect(db)) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for expected in (
@@ -35,7 +35,7 @@ def test_migrate_creates_schema_and_version(tmp_path: Path) -> None:
 def test_migrate_is_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "t.db"
     migrate(db)
-    assert migrate(db) == 4  # second run applies nothing, no error
+    assert migrate(db) == 5  # second run applies nothing, no error
 
 
 def test_orders_migrations_numerically(tmp_path: Path) -> None:
