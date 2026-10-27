@@ -30,8 +30,9 @@ _LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1"}
 
 
 def cookie_secure(request: Request) -> bool:
-    """Cookies are `Secure` everywhere except a local development host."""
-    return request.url.hostname not in _LOCAL_HOSTS
+    """Cookies are `Secure` unless the request is plain http to a local development host. The
+    scheme is https behind a trusted TLS proxy (uvicorn --proxy-headers), whatever Host it sends."""
+    return request.url.scheme == "https" or request.url.hostname not in _LOCAL_HOSTS
 
 
 router = APIRouter(prefix="/api/v1")

@@ -97,6 +97,20 @@ Run the checks:
 make check
 ```
 
+## Running behind a TLS proxy
+
+Run uvicorn so it trusts forwarded headers from your proxy and nobody else:
+
+```powershell
+uv run uvicorn app.main:app --host 127.0.0.1 --port 8000 --proxy-headers --forwarded-allow-ips=127.0.0.1
+```
+
+Put the proxy's own address in `--forwarded-allow-ips`. Never `*`: any client could then forge its
+address and dodge the login lock. The proxy must send `X-Forwarded-For` and `X-Forwarded-Proto`,
+and pass the original `Host` header through (the same-origin check compares it with `Origin`).
+With that, the login lock counts real client addresses, and the session cookie and HSTS are set
+for https. Also set a request body limit on the proxy.
+
 ## Responsible use
 
 ThreatLens is for education and defensive analysis. It stores findings and analyst

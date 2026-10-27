@@ -94,8 +94,10 @@ the database anyway).
    path: HMAC with a key held outside the database, and an offsite copy of the latest hash.
 2. **Lockout as a weapon:** anyone can lock a known username for 15 minutes by failing five
    times. Chosen over letting an attacker guess freely.
-3. **IP key behind a proxy:** the lock uses the socket peer address. Behind a reverse proxy
-   every client looks the same until forwarded addresses are trusted.
+3. **IP key behind a proxy:** the lock uses the client address uvicorn reports. With
+   `--proxy-headers --forwarded-allow-ips=<proxy address>` that is the forwarded address
+   (`tests/test_proxy.py`); without the flags, or with `*`, it is the proxy's own address (one
+   shared bucket) or whatever a client forges. Operators must set the allow-list correctly.
 4. **No rate limit on the ingest 401 path.** Keys are 256-bit, so guessing is not feasible,
    but the endpoint can still be hammered.
 5. **No user-management routes or account disable yet.** Admins can create and revoke API
@@ -113,8 +115,10 @@ the database anyway).
    middleware). The body is plain text.
 10. **Every authenticated request writes** the sliding expiry, so a long ingest can make
     analyst requests wait for the write lock (503 after 30 s).
-11. **`Secure` and HSTS come from the request**, not from a setting. Behind a TLS-terminating
-    proxy they need forwarded headers to be trusted.
+11. **`Secure` and HSTS depend on the proxy setup.** They follow the request scheme, which is
+    https only when a trusted proxy sends `X-Forwarded-Proto: https`. A proxy that is not on
+    the allow-list gets plain-http behaviour: no HSTS, and cookies `Secure` only off localhost.
+    `X-Forwarded-Host` is not read, so the proxy must pass the original `Host` header.
 12. **Incident write routes (M5a) read the role before the transaction starts.** A session
     demoted or revoked in that few-millisecond window can still finish one action. Every action
     is audited with the actor.
