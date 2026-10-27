@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
@@ -274,7 +275,11 @@ def test_forms_are_shown_by_role_and_carry_the_token(ctx: Ctx) -> None:
 
     v, _ = login("viewer")
 
-    assert f'action="/incidents/{ctx.a}/' not in v.get(f"/incidents/{ctx.a}").text
+    seen = v.get(f"/incidents/{ctx.a}").text
+    assert f'action="/incidents/{ctx.a}/' not in seen
+    # a viewer may follow links below the incident only to the read-only report
+    below = set(re.findall(rf'href="/incidents/{re.escape(ctx.a)}/([^"]*)"', seen))
+    assert below == {"report"}
 
     a, csrf = login("ann")
 

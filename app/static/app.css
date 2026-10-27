@@ -32,6 +32,6 @@ fieldset { border: 1px solid var(--line); min-width: 0; }
 .facts dd { margin: 0; }
 
 @media print {
-  .noprint, nav, header form { display: none; }
+  header, .skip, .noprint { display: none; }
   body { background: #fff; color: #000; }
 }
