@@ -8,7 +8,7 @@ ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M5c done; M5d slices A-C done)
+## Current state (v2, M0-M6b done; M6c metrics, M7 verdict export and M8 demo not built)
 
 - FastAPI app: `/health`, ingest, and JSON login (`POST /api/v1/login`, `/logout`, `GET /me`).
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
@@ -60,8 +60,9 @@ workflow. It does no detection of its own.
   on the page after the create redirect, and never logged (a 60 s HttpOnly cookie carries it across the redirect; the database never holds it; the cookie is `Secure` off localhost).
   `/admin/users` (admin only) creates users (admin types the first password), changes roles and
   disables or re-enables accounts. You cannot change your own account, and the last active admin
-  stays. Disabling ends that user's sessions and blocks login. Every change is audited. No
-  password reset or self-service change yet.
+  stays. Disabling ends that user's sessions and blocks login. Every change is audited. A
+  forgotten password is reset by an operator with `threatlens user set-password EMAIL`; everyone
+  can change their own on `/account`.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per
   15 min, security headers. `threatlens create-admin EMAIL` makes the first admin (no default
@@ -69,7 +70,7 @@ workflow. It does no detection of its own.
 - Audit log: hash-chained and append-only through SQL; `threatlens audit verify` exits 1 if a row was changed or removed. Optional keyed anchors (below) catch a full rewrite.
   It catches accidental and naive edits, not someone who can rewrite the file. See [docs/threat-model.md](docs/threat-model.md).
 - First data model in place (see `app/migrations/001_initial.sql`);
-  `assets` and `identities` are minimal until M4.
+  `assets` and `identities` gained their columns in migration 006.
 - Tooling: uv, ruff, mypy (strict), bandit, pip-audit, pytest. `make check` is the gate.
 
 ## Screenshots

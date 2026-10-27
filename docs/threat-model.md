@@ -104,14 +104,14 @@ the database anyway).
    `--proxy-headers --forwarded-allow-ips=<proxy address>` that is the forwarded address
    (`tests/test_proxy.py`); without the flags, or with `*`, it is the proxy's own address (one
    shared bucket) or whatever a client forges. Operators must set the allow-list correctly.
-4. **No rate limit on the ingest 401 path.** Keys are 256-bit, so guessing is not feasible,
-   but the endpoint can still be hammered.
-5. **No user-management routes or account disable yet.** Admins can create and revoke API
-   keys in the UI, but users come from the CLI only. Nothing (API, UI or CLI) can revoke a
-   session, disable an account or reset a password except editing the SQLite file. Planned as
-   slice D of M5d.
+4. **Ingest key failures are throttled per address (429).** Keys are 256-bit, so guessing is not
+   feasible; the cost is that one address can be locked out of ingest for 15 minutes.
+5. **Account recovery is operator-only.** Admins manage users in the UI; a forgotten password is reset
+   with `threatlens user set-password EMAIL` (ends sessions, audited). No email reset by design.
 6. **Stored XSS:** `tests/test_ui.py` renders a hostile title, rule, host, user, comment and
    author on the queue and detail pages and asserts they are escaped. Alert detail (M5c) adds its own.
+   `tests/test_report.py` does the same for the HTML report and, with Markdown link and heading
+   payloads, for `report.md` (every stored value is escaped for Markdown).
 7. **`/docs`, `/redoc` and `/openapi.json` are off by default** (`THREATLENS_DOCS=1` turns
    them on, as `make demo` does). When on, they have no CSP because Swagger UI loads scripts
    from a CDN, so do not enable them in production.
