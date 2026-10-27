@@ -50,6 +50,9 @@ MATRIX: dict[tuple[str, str], tuple[dict[str, int], dict[str, Any]]] = {
     ("POST", "/api/v1/login"): (_all(422), {"json": {}}),
     ("POST", "/api/v1/logout"): (_session_route(204), {}),
     ("GET", "/api/v1/me"): (_session_route(200), {}),
+    ("GET", "/api/v1/incidents"): (_session_route(200), {}),
+    # the literal "{incident_id}" is an unknown id: a logged-in caller gets 404, not 401/403
+    ("GET", "/api/v1/incidents/{incident_id}"): (_session_route(404), {}),
 }
 CASES = [(key, who) for key in MATRIX for who in PRINCIPALS]
 
