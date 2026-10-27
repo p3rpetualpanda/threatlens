@@ -43,7 +43,7 @@ the database anyway).
 | Information disclosure: framing, sniffing, caching | CSP (`default-src 'self'`, `frame-ancestors 'none'`), `X-Frame-Options`, `nosniff`, `Referrer-Policy: same-origin`, `no-store` | `test_security_headers_everywhere_but_docs` |
 | Repudiation | Login success, lock, logout and user creation are audited; a failed login below the lock threshold is not | `test_login_is_audited_and_the_chain_holds`, `test_logout_is_audited_and_clears_the_cookie`, `test_create_user_is_audited_without_the_password` |
 | Elevation of privilege | Roles viewer < analyst < lead < admin, checked on the server after the session | `test_roles_include_the_ones_below`, `tests/test_authz_matrix.py` |
-| Denial of service | Idle sessions expire after 8 h, and no session outlives 24 h; login fields capped (254 / 1024 chars) and a declared body over 4 KB gets 413 | `test_idle_expiry_and_sliding_window`, `test_a_busy_session_still_ends_at_the_absolute_limit`, `test_login_rejects_malformed_bodies`, `test_oversized_login_body_is_refused_before_it_is_parsed` |
+| Denial of service | Idle sessions expire after 8 h, and no session outlives 24 h; login fields capped (254 / 1024 chars); every request body is capped by bytes read (login 4 KB, others 64 KB, ingest 10 MB), chunked or not | `test_idle_expiry_and_sliding_window`, `test_a_busy_session_still_ends_at_the_absolute_limit`, `test_login_rejects_malformed_bodies`, `test_oversized_login_body_is_refused_before_it_is_parsed`, `tests/test_bodylimit.py` |
 
 ### Ingest client to server (`POST /api/v1/findings`)
 
@@ -114,8 +114,9 @@ the database anyway).
 7. **`/docs`, `/redoc` and `/openapi.json` are off by default** (`THREATLENS_DOCS=1` turns
    them on, as `make demo` does). When on, they have no CSP because Swagger UI loads scripts
    from a CDN, so do not enable them in production.
-8. **Login body cap trusts `Content-Length`;** a chunked body skips it. Put a body limit on the
-   reverse proxy.
+8. **Body caps count gzip bodies at their compressed size.** Request bodies are capped by bytes
+   read (app/bodylimit.py: 4 KB login, 64 KB default, 10 MB ingest), so chunked and lying
+   `Content-Length` bodies get 413. A proxy limit is still good defence in depth.
 9. **Unhandled 500s skip the security headers** (Starlette answers them outside the
    middleware). The body is plain text.
 10. **Every authenticated request writes** the sliding expiry, so a long ingest can make

@@ -7,11 +7,13 @@ from contextlib import asynccontextmanager, closing
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import JSONResponse
+from starlette.types import Scope
 
 from . import config
 from .admin_ui import router as admin_ui_router
 from .api import router as ingest_router
 from .auth import router as auth_router
+from .bodylimit import BodyLimit
 from .db import connect, migrate
 from .incidents_api import router as incidents_router
 from .ui import router as ui_router
@@ -20,8 +22,6 @@ from .workflow_api import router as workflow_router
 
 _CSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 _NO_CSP_PATHS = {"/docs", "/redoc"}  # Swagger UI and ReDoc load scripts from a CDN
-_LOGIN_PATHS = {"/api/v1/login", "/login"}
-_MAX_LOGIN_BYTES = 4096
 _log = logging.getLogger(__name__)
 
 
@@ -42,27 +42,27 @@ app = FastAPI(
 )
 
 
+def _security_headers(scope: Scope) -> dict[str, str]:
+    headers = {
+        "X-Content-Type-Options": "nosniff",
+        "X-Frame-Options": "DENY",
+        # no-referrer makes browsers send Origin: null on form posts
+        "Referrer-Policy": "same-origin",
+        "Cache-Control": "no-store",
+    }
+    if scope["path"] not in _NO_CSP_PATHS:
+        headers["Content-Security-Policy"] = _CSP
+    if scope["scheme"] == "https":
+        headers["Strict-Transport-Security"] = "max-age=31536000"
+    return headers
+
+
 @app.middleware("http")
 async def security_headers(
     request: Request, call_next: Callable[[Request], Awaitable[Response]]
 ) -> Response:
-    # shortcut: trusts Content-Length, so a chunked body skips this cap; put a body limit on the
-    # reverse proxy before exposing the login route.
-    declared = request.headers.get("content-length", "")
-    if request.url.path in _LOGIN_PATHS and declared.isdigit() and int(declared) > _MAX_LOGIN_BYTES:
-        response: Response = JSONResponse({"detail": "request body too large"}, status_code=413)
-    else:
-        response = await call_next(request)
-    response.headers["X-Content-Type-Options"] = "nosniff"
-    response.headers["X-Frame-Options"] = "DENY"
-    response.headers["Referrer-Policy"] = (
-        "same-origin"  # no-referrer makes browsers send Origin: null on form posts
-    )
-    response.headers["Cache-Control"] = "no-store"
-    if request.url.path not in _NO_CSP_PATHS:
-        response.headers["Content-Security-Policy"] = _CSP
-    if request.url.scheme == "https":
-        response.headers["Strict-Transport-Security"] = "max-age=31536000"
+    response = await call_next(request)
+    response.headers.update(_security_headers(request.scope))
     return response
 
 
@@ -76,6 +76,7 @@ async def database_busy(request: Request, exc: sqlite3.OperationalError) -> JSON
     return JSONResponse({"detail": "database error"}, status_code=500)
 
 
+app.add_middleware(BodyLimit, headers=_security_headers)  # outermost: wraps the 413 too
 app.include_router(ingest_router)
 app.include_router(auth_router)
 app.include_router(incidents_router)

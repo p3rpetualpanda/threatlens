@@ -119,7 +119,7 @@ Put the proxy's own address in `--forwarded-allow-ips`. Never `*`: any client co
 address and dodge the login lock. The proxy must send `X-Forwarded-For` and `X-Forwarded-Proto`,
 and pass the original `Host` header through (the same-origin check compares it with `Origin`).
 With that, the login lock counts real client addresses, and the session cookie and HSTS are set
-for https. Also set a request body limit on the proxy.
+for https. The app caps request bodies itself (chunked ones too); a proxy limit is extra.
 
 ## Responsible use
 
