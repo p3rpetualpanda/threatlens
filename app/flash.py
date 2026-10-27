@@ -2,8 +2,8 @@
 
 The redirect target stays a plain URL, so a refresh or a typed `?done=` cannot replay or fake
 a message, and a one-time API token never rides in a URL. Rows are in SQLite, so several
-workers and restarts are fine. A row lives 60 s and is deleted when read; a new API token sits
-in `value` for that window (the keys table itself keeps only its hash).
+workers and restarts are fine. A row lives 60 s and is deleted when read; nothing secret goes in
+`value` (a new API token travels in a cookie instead, see app/admin_ui.py).
 """
 
 from __future__ import annotations

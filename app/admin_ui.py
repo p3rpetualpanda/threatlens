@@ -31,6 +31,7 @@ from .users import ROLES
 router = APIRouter()
 _PAGE = 50
 _MAX_NAME = 100
+_NEWKEY = "threatlens_newkey"  # carries a new token across the redirect, for 60 s
 _VERIFY_TTL = 30.0
 _verified_at: tuple[float, str, int, int | None] | None = None  # time, db, last id, result
 
@@ -92,10 +93,10 @@ def _keys(
     request: Request,
     session: Session,
     code: int = 200,
-    created: list[str] | None = None,
+    created: tuple[str, str] | None = None,
     error: str | None = None,
 ) -> Response:
-    token, name = (created[1], created[0]) if created else (None, None)
+    name, token = created if created else (None, None)
     with closing(connect(config.DB_PATH)) as conn:
         rows = conn.execute(
             "SELECT id, name, scope, created_at, revoked_at FROM api_keys "
@@ -111,7 +112,11 @@ def key_list(request: Request) -> Response:
     session = _need(request, "admin")
     if isinstance(session, Response):
         return session
-    return _keys(request, session, created=flash.pop(session.csrf_token, "key"))
+    name = flash.pop(session.csrf_token, "key")
+    token = request.cookies.get(_NEWKEY)
+    shown = _keys(request, session, created=(name[0], token) if name and token else None)
+    shown.delete_cookie(_NEWKEY, path="/admin/keys")  # one view only
+    return shown
 
 
 def _create(actor: str, name: str) -> str:
@@ -140,9 +145,20 @@ async def key_create(request: Request) -> Response:
         msg = f"name must be 1 to {_MAX_NAME} characters"
         return await run_in_threadpool(_keys, request, session, 422, None, msg)
     token = await run_in_threadpool(_create, session.user.email, name)
-    # redirect so a refresh cannot repeat the POST; the token waits in memory for one page view
-    await run_in_threadpool(flash.put, session.csrf_token, "key", [name, token])
-    return RedirectResponse("/admin/keys", status_code=303)
+    # Redirect so a refresh cannot repeat the POST. The token travels in a short HttpOnly cookie,
+    # not the database; only the key name waits in the flash table.
+    await run_in_threadpool(flash.put, session.csrf_token, "key", [name])
+    out = RedirectResponse("/admin/keys", status_code=303)
+    out.set_cookie(
+        _NEWKEY,
+        token,
+        max_age=60,
+        path="/admin/keys",
+        httponly=True,
+        samesite="strict",
+        secure=request.url.scheme == "https",
+    )
+    return out
 
 
 @router.post("/admin/keys/{key_id}/revoke", include_in_schema=False)

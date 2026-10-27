@@ -47,7 +47,7 @@ workflow. It does no detection of its own.
 - Admin pages (M5d): a fixed one-shot message after each good action. `/audit` (lead and admin)
   lists the newest 50 audit rows and the hash-chain result (re-checked at most every 30 s).
   `/admin/keys` (admin only) lists, creates and revokes ingest keys; a new token is shown once,
-  on the page after the create redirect, and never logged (a 60 s one-shot row in SQLite carries it across the redirect). Users and roles pages (slice D) are
+  on the page after the create redirect, and never logged (a 60 s HttpOnly cookie carries it across the redirect; the database never holds it). Users and roles pages (slice D) are
   not built.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per
