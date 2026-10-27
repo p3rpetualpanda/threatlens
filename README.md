@@ -8,15 +8,20 @@ ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M2)
+## Current state (v2, M3)
 
 - FastAPI app: `/health`, ingest, and JSON login (`POST /api/v1/login`, `/logout`, `GET /me`).
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
   versioned by `PRAGMA user_version`.
 - Ingest: `POST /api/v1/findings` (bearer API key, 10 MB / 5,000-finding limits,
   all-or-nothing, idempotent by finding uid) and `threatlens import FILE`. Findings are
-  validated against the vendored beacon contract v1 (`contracts/`). Incident correlation
-  does not exist yet (M3).
+  validated against the vendored beacon contract v1 (`contracts/`).
+- Correlation: after each ingest, alerts of an environment are grouped into incidents. Two
+  alerts link when they share a host, user or source IP (not a stoplisted one) and their time
+  ranges are within 2 h; incidents are the connected groups, with a plain-English reason per
+  alert. Settings: `config/correlation.yml`. Analyst-touched incidents never split, resolved ones
+  are frozen, ids are stable. Read-only `GET /api/v1/incidents` and `/{id}` for any logged-in
+  role. Measured on beacon's 544-finding export: see [docs/correlation.md](docs/correlation.md).
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per

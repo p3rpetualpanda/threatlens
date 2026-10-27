@@ -1,7 +1,8 @@
-# ThreatLens threat model (state after M2)
+# ThreatLens threat model (state after M3)
 
 Scope: what exists today: the ingest API, login/logout, role and CSRF checks, the audit
-log, and the SQLite file. The analyst UI (M5), incident workflow (M3-M4) and reports (M6)
+log, the read-only incident endpoints, and the SQLite file. The analyst UI (M5), incident
+workflow (M4) and reports (M6)
 add their own rows when they land. Every mitigation below names the test that proves it.
 
 ## Data flow
@@ -53,6 +54,16 @@ the database anyway).
 | Denial of service | 10 MB and 5,000-finding limits (413), parsing off the event loop, 503 + `Retry-After` when the database is locked | `test_api_findings.py` |
 | Repudiation | One audit row per import naming the key id | `test_ingest_writes_one_audit_row` |
 | Elevation of privilege | A user session cannot ingest; an API key cannot reach user routes | `tests/test_authz_matrix.py` |
+
+### Incident endpoints (`GET /api/v1/incidents`, `/{id}`)
+
+| Threat | Mitigation | Proof |
+|---|---|---|
+| Spoofing, elevation of privilege | Read-only; any logged-in role (viewer and up). Anonymous and API-key callers get 401 | `tests/test_authz_matrix.py` |
+| Tampering: SQL injection through filters | Parameterised SQL; `status` is an enum, `limit` is 1-200, `environment` and the id are length-capped | `test_sql_in_filter_is_just_a_value`, `test_limit_is_capped_at_200` |
+| Tampering: hostile finding text shown back | Titles and reasons are JSON strings, never HTML; the security headers stay on every response | `tests/test_incidents_api.py` |
+| Repudiation | Automatic merges write an `incident.merge` audit row by `system`; creating incidents is not audited, to keep the log small | `test_audit_row_on_merge` |
+| Denial of service | Re-partitioning is O(alerts in the environment) per ingest; fine to a few thousand alerts (`shortcut:` note in `app/correlate.py`) | `scripts/measure_correlation.py` on the 544-finding export |
 
 ### Server to SQLite file
 

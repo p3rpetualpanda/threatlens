@@ -13,11 +13,6 @@ from .db import connect
 
 router = APIRouter(prefix="/api/v1")
 
-_FIELDS = (
-    "id, environment, title, status, disposition, owner, risk_score, first_seen, last_seen, "
-    "related_incident, merged_into, touched"
-)
-
 
 @router.get("/incidents", dependencies=[Depends(require_role("viewer"))])
 def list_incidents(
@@ -25,21 +20,16 @@ def list_incidents(
     status: Literal["new", "in_progress", "resolved"] | None = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
 ) -> dict[str, Any]:
-    where, args = ["i.merged_into IS NULL"], []
-    if environment is not None:
-        where.append("i.environment = ?")
-        args.append(environment)
-    if status is not None:
-        where.append("i.status = ?")
-        args.append(status)
-    sql = (  # noqa: S608  (fixed fragments only; every value is bound)
-        "SELECT i.id, i.environment, i.title, i.status, i.risk_score, i.first_seen, i.last_seen, "
-        "(SELECT count(*) FROM incident_alerts ia WHERE ia.incident_id = i.id) AS alert_count "
-        f"FROM incidents i WHERE {' AND '.join(where)} "
-        "ORDER BY i.last_seen DESC, i.id LIMIT ?"
-    )
     with closing(connect(config.DB_PATH)) as conn:
-        rows = conn.execute(sql, [*args, limit]).fetchall()
+        rows = conn.execute(
+            "SELECT i.id, i.environment, i.title, i.status, i.risk_score, i.first_seen, "
+            "i.last_seen, "
+            "(SELECT count(*) FROM incident_alerts ia WHERE ia.incident_id = i.id) AS alert_count "
+            "FROM incidents i WHERE i.merged_into IS NULL "
+            "AND (?1 IS NULL OR i.environment = ?1) AND (?2 IS NULL OR i.status = ?2) "
+            "ORDER BY i.last_seen DESC, i.id LIMIT ?3",
+            [environment, status, limit],
+        ).fetchall()
     return {"incidents": [dict(r) for r in rows]}
 
 
@@ -47,7 +37,8 @@ def list_incidents(
 def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, Any]:
     with closing(connect(config.DB_PATH)) as conn:
         row = conn.execute(
-            f"SELECT {_FIELDS} FROM incidents WHERE id = ?",  # noqa: S608
+            "SELECT id, environment, title, status, disposition, owner, risk_score, first_seen, "
+            "last_seen, related_incident, merged_into, touched FROM incidents WHERE id = ?",
             [incident_id],
         ).fetchone()
         if row is None:
