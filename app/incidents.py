@@ -1,0 +1,219 @@
+"""Write the correlation partition into incidents, honouring analyst state (spec 6.4).
+
+Rules: resolved incidents are frozen (new linked alerts open a new incident that points back
+through ``related_incident``); a touched incident never splits; incidents that one component
+bridges merge into the oldest (touched first); ids of surviving incidents never change.
+The caller owns the transaction: nothing is committed here.
+"""
+
+from __future__ import annotations
+
+import json
+import sqlite3
+import uuid
+from collections import Counter
+from dataclasses import dataclass, field
+from datetime import UTC, datetime
+from typing import Any
+
+from .audit import record
+from .correlate import Alert, partition
+from .correlation_config import load_config
+
+_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
+Spans = dict[str, tuple[datetime, datetime]]
+
+
+@dataclass
+class _Group:
+    members: set[str] = field(default_factory=set)
+    frozen: set[str] = field(default_factory=set)
+    why: dict[str, str] = field(default_factory=dict)
+
+
+def _ms(value: Any) -> datetime | None:
+    return datetime.fromtimestamp(value / 1000, UTC) if isinstance(value, int | float) else None
+
+
+def _load_alerts(
+    conn: sqlite3.Connection, environment: str
+) -> tuple[list[Alert], dict[str, str], Spans]:
+    entities: dict[str, set[tuple[str, str]]] = {}
+    for r in conn.execute(
+        "SELECT e.alert_id, e.kind, e.value FROM alert_entities e "
+        "JOIN alerts a ON a.id = e.alert_id WHERE a.environment = ?",
+        [environment],
+    ):
+        entities.setdefault(r["alert_id"], set()).add((r["kind"], r["value"]))
+    alerts: list[Alert] = []
+    titles: dict[str, str] = {}
+    spans: Spans = {}
+    for r in conn.execute(
+        "SELECT id, rule, time, raw_json FROM alerts WHERE environment = ?", [environment]
+    ):
+        info = json.loads(r["raw_json"]).get("finding_info", {})
+        fallback = datetime.fromisoformat(r["time"]) if r["time"] else _EPOCH
+        first = _ms(info.get("first_seen_time")) or fallback
+        last = max(first, _ms(info.get("last_seen_time")) or first)
+        titles[r["id"]] = str(info.get("title") or r["rule"])
+        spans[r["id"]] = (first, last)
+        alerts.append(Alert(r["id"], r["rule"], first, last, frozenset(entities.get(r["id"], ()))))
+    return alerts, titles, spans
+
+
+def recorrelate(conn: sqlite3.Connection, environment: str, now: datetime) -> list[str]:
+    """Re-partition one environment; return ids of incidents created or changed."""
+    stamp = now.isoformat()
+    alerts, titles, spans = _load_alerts(conn, environment)
+    incidents = {
+        r["id"]: r
+        for r in conn.execute(
+            "SELECT * FROM incidents WHERE environment = ? AND merged_into IS NULL", [environment]
+        )
+    }
+    member_of: dict[str, str] = {}
+    pinned: set[str] = set()
+    for r in conn.execute(
+        "SELECT ia.incident_id, ia.alert_id, ia.pinned FROM incident_alerts ia "
+        "JOIN incidents i ON i.id = ia.incident_id "
+        "WHERE i.environment = ? AND i.merged_into IS NULL",
+        [environment],
+    ):
+        member_of[r["alert_id"]] = r["incident_id"]
+        if r["pinned"]:
+            pinned.add(r["alert_id"])
+    frozen_alerts = {a for a, i in member_of.items() if incidents[i]["status"] == "resolved"}
+    movable = {a.uid for a in alerts} - pinned - frozen_alerts
+
+    groups = [
+        _Group(set(c.uids & movable), {member_of[a] for a in c.uids & frozen_alerts}, c.why)
+        for c in partition(alerts, load_config())
+    ]
+    groups = [g for g in _join_on_touched(groups, member_of, incidents) if g.members]
+    groups.sort(key=lambda g: min(g.members))  # max() below keeps the first of equal scores
+
+    # An untouched incident split across groups stays with the group holding most of it.
+    best: dict[str, tuple[int, int]] = {}
+    for k, g in enumerate(groups):
+        for iid, n in Counter(member_of[a] for a in g.members if a in member_of).items():
+            if iid not in best or n > best[iid][0]:
+                best[iid] = (n, k)
+    owner = {iid: k for iid, (_, k) in best.items()}
+
+    changed: list[str] = []
+    for k, g in enumerate(groups):
+        mine = sorted(
+            (i for i, o in owner.items() if o == k),
+            key=lambda i: (not incidents[i]["touched"], incidents[i]["created_at"], i),
+        )
+        if mine:
+            winner, losers = mine[0], mine[1:]
+        else:
+            winner, losers = str(uuid.uuid4()), []
+            _insert_incident(conn, winner, environment, stamp)
+            changed.append(winner)
+        for loser in losers:
+            _merge(conn, loser, winner, stamp, now)
+        did_change = _sync(conn, winner, g, titles, spans, pinned, stamp) or bool(losers)
+        if did_change and winner not in changed:
+            changed.append(winner)
+    return changed
+
+
+def _join_on_touched(
+    groups: list[_Group], member_of: dict[str, str], incidents: dict[str, sqlite3.Row]
+) -> list[_Group]:
+    """Groups sharing a touched incident become one, so a touched incident never splits."""
+    touched = {i for i, r in incidents.items() if r["touched"]}
+    out: list[_Group] = []
+    for g in groups:
+        mine = {member_of[a] for a in g.members if a in member_of} & touched
+        for prev in [p for p in out if mine & {member_of.get(a) for a in p.members}]:
+            out.remove(prev)
+            g.members |= prev.members
+            g.frozen |= prev.frozen
+            g.why |= prev.why
+        out.append(g)
+    return out
+
+
+def _insert_incident(conn: sqlite3.Connection, iid: str, environment: str, stamp: str) -> None:
+    conn.execute(
+        "INSERT INTO incidents (id, environment, title, created_at, updated_at) "
+        "VALUES (?, ?, '', ?, ?)",
+        [iid, environment, stamp, stamp],
+    )
+
+
+def _merge(conn: sqlite3.Connection, loser: str, winner: str, stamp: str, now: datetime) -> None:
+    conn.execute(
+        "UPDATE incident_alerts SET incident_id = ? WHERE incident_id = ?", [winner, loser]
+    )
+    conn.execute("UPDATE comments SET incident_id = ? WHERE incident_id = ?", [winner, loser])
+    conn.execute(
+        "UPDATE OR IGNORE playbook_progress SET incident_id = ? WHERE incident_id = ?",
+        [winner, loser],
+    )
+    conn.execute("DELETE FROM playbook_progress WHERE incident_id = ?", [loser])
+    conn.execute(
+        "UPDATE incidents SET merged_into = ?, updated_at = ? WHERE id = ?", [winner, stamp, loser]
+    )
+    record(conn, "system", "incident.merge", winner, {"merged": loser}, now)
+
+
+def _sync(
+    conn: sqlite3.Connection,
+    iid: str,
+    g: _Group,
+    titles: dict[str, str],
+    spans: Spans,
+    pinned: set[str],
+    stamp: str,
+) -> bool:
+    """Bring one incident's rows in line with its group; return whether anything changed."""
+    row = conn.execute("SELECT * FROM incidents WHERE id = ?", [iid]).fetchone()
+    cur = {
+        r["alert_id"]: r["why"]
+        for r in conn.execute(
+            "SELECT alert_id, why FROM incident_alerts WHERE incident_id = ?", [iid]
+        )
+    }
+    desired = set(g.members) | (set(cur) & pinned)
+    if row["touched"]:
+        desired |= set(cur)  # a touched incident never loses alerts
+    moved = False
+    for a in set(cur) - desired:
+        conn.execute("DELETE FROM incident_alerts WHERE incident_id = ? AND alert_id = ?", [iid, a])
+        moved = True
+    for a in desired - set(cur):
+        # an alert leaving another untouched incident is moved, not duplicated
+        conn.execute("DELETE FROM incident_alerts WHERE alert_id = ?", [a])
+        conn.execute(
+            "INSERT INTO incident_alerts (incident_id, alert_id, why) VALUES (?, ?, ?)",
+            [iid, a, g.why.get(a, "")],
+        )
+        moved = True
+    for a in desired & set(cur):
+        if a in g.why and cur[a] != g.why[a]:
+            conn.execute(
+                "UPDATE incident_alerts SET why = ? WHERE incident_id = ? AND alert_id = ?",
+                [g.why[a], iid, a],
+            )
+    n = len(desired)
+    first_alert = min(desired, key=lambda a: (spans[a][0], a))
+    title = titles[first_alert] + (f" (+{n - 1} more)" if n > 1 else "")
+    values = (
+        row["title"] if row["touched"] and row["title"] else title,
+        min(spans[a][0] for a in desired).isoformat(timespec="milliseconds"),
+        max(spans[a][1] for a in desired).isoformat(timespec="milliseconds"),
+        row["related_incident"] or (min(g.frozen) if g.frozen else None),
+    )
+    same = values == (row["title"], row["first_seen"], row["last_seen"], row["related_incident"])
+    if same and not moved:
+        return False
+    conn.execute(
+        "UPDATE incidents SET title = ?, first_seen = ?, last_seen = ?, related_incident = ?, "
+        "updated_at = ? WHERE id = ?",
+        [*values, stamp, iid],
+    )
+    return True
