@@ -67,7 +67,7 @@ def test_audit_page_is_for_lead_and_admin(db: Path) -> None:
         assert login(name)[0].get("/audit").status_code == 403
     for name in ("lead", "admin"):
         page = login(name)[0].get("/audit")
-        assert page.status_code == 200 and "login.success" in page.text
+        assert page.status_code == 200 and "user.create" in page.text
         assert "chain intact" in page.text
 
 
@@ -90,7 +90,7 @@ def test_audit_page_escapes_and_pages(db: Path) -> None:
     assert first.count("<tr>") == 51 and "/audit?before=" in first  # 50 rows plus the header row
     last_id = first.split("/audit?before=")[1].split('"')[0]
     older = c.get(f"/audit?before={last_id}").text
-    assert "login.success" in older and "/audit?before=" not in older
+    assert "user.create" in older and "/audit?before=" not in older
     for bad in ("0", "abc", "99999999999999999999"):
         assert c.get(f"/audit?before={bad}").status_code == 422
 
@@ -172,7 +172,7 @@ def test_the_token_cookie_is_secure_off_localhost(db: Path) -> None:
     assert "secure" not in post(c, "/admin/keys", csrf, name="lab2").headers["set-cookie"].lower()
 
 
-def test_leads_do_not_see_login_details_but_admins_do(db: Path) -> None:
+def test_leads_do_not_see_login_rows_but_admins_do(db: Path) -> None:
     with closing(connect(config.DB_PATH)) as conn:
         record(
             conn,
@@ -186,6 +186,14 @@ def test_leads_do_not_see_login_details_but_admins_do(db: Path) -> None:
         conn.commit()
     lead, _ = login("lead")
     seen = lead.get("/audit").text
-    assert "198.51.100.7" not in seen and "login.locked" in seen and "visible" in seen
+    assert "198.51.100.7" not in seen and "login.locked" not in seen and "visible" in seen
+    assert "login.success" not in seen
     admin, _ = login("admin")
     assert "198.51.100.7" in admin.get("/audit").text
+
+
+def test_a_refusal_page_is_not_titled_not_found(db: Path) -> None:
+    c, _ = login("lead")
+    r = c.get("/admin/keys")
+    assert r.status_code == 403
+    assert "<title>Error - ThreatLens</title>" in r.text

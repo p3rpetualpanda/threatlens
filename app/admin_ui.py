@@ -53,17 +53,16 @@ def audit_log(
         # shortcut: walks the whole chain per view (0.24 s per 50,000 rows, readers do not block
         # writers in WAL); check incrementally once the log passes a few hundred thousand rows
         broken = verify(conn)
+        # login rows hold client IPs and emails typed by anyone: admins only
+        hide = session.user.role != "admin"
         rows = conn.execute(
             "SELECT id, at, actor, action, target, detail FROM audit_log "
-            "WHERE (?1 IS NULL OR id < ?1) ORDER BY id DESC LIMIT ?2",
-            [before, _PAGE + 1],
+            "WHERE (?1 IS NULL OR id < ?1) AND NOT (?3 AND action LIKE 'login.%') "
+            "ORDER BY id DESC LIMIT ?2",
+            [before, _PAGE + 1, hide],
         ).fetchall()
     more = len(rows) > _PAGE
-    rows = [dict(r) for r in rows[:_PAGE]]
-    if session.user.role != "admin":  # login rows hold client IPs and emails typed by anyone
-        for r in rows:
-            if r["action"].startswith("login."):
-                r["detail"] = None
+    rows = rows[:_PAGE]
     return _page(
         request,
         "audit.html",
