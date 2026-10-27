@@ -185,3 +185,14 @@ def test_environments_do_not_mix(conn: sqlite3.Connection) -> None:
     run(conn, "e1")
     run(conn, "e2")
     assert incident_of(conn, "a") != incident_of(conn, "b")
+
+
+def test_touched_incident_keeps_its_title(conn: sqlite3.Connection) -> None:
+    add(conn, "a", 0, host="h")
+    (iid,) = run(conn)
+    conn.execute("UPDATE incidents SET touched = 1, title = 'Analyst title' WHERE id = ?", [iid])
+    add(conn, "b", 10, host="h")
+    run(conn)
+    assert conn.execute("SELECT title FROM incidents WHERE id=?", [iid]).fetchone()[0] == (
+        "Analyst title"
+    )
