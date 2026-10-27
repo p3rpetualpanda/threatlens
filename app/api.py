@@ -17,6 +17,7 @@ from .apikeys import lookup_api_key
 from .contract import FindingError, validate_findings
 from .db import connect
 from .ingest import IngestResult, ingest_findings
+from .lockout import WINDOW, is_locked, note_failure
 
 MAX_BODY_BYTES = 10 * 1024 * 1024
 MAX_FINDINGS = 5_000
@@ -35,9 +36,22 @@ def _busy(exc: sqlite3.OperationalError) -> Exception:
     return exc
 
 
-def _authorized(token: str) -> str | None:
+def _check(token: str | None, ip: str) -> str | None:
+    """Return the key id. Bad or missing keys count against the client address; at the limit
+    every request from it (good key too) gets a 429 until the window passes."""
+    now = datetime.now(UTC)
+    key = f"ingest:{ip}"
     with closing(connect(config.DB_PATH)) as conn:
-        return lookup_api_key(conn, token, "ingest")
+        if is_locked(conn, [key], now):
+            raise HTTPException(
+                429,
+                "too many failed key attempts, try again later",
+                headers={"Retry-After": str(int(WINDOW.total_seconds()))},
+            )
+        key_id = lookup_api_key(conn, token, "ingest") if token else None
+        if key_id is None:
+            note_failure(conn, key, now)
+        return key_id
 
 
 def _store(findings: list[dict[str, Any]], key_id: str) -> IngestResult:
@@ -74,10 +88,10 @@ def _parse(body: bytes) -> tuple[list[dict[str, Any]], list[FindingError]]:
 @router.post("/findings")
 async def post_findings(request: Request) -> JSONResponse:
     parts = request.headers.get("authorization", "").split(None, 1)
-    if len(parts) != 2 or parts[0].lower() != "bearer":
-        raise _unauthorized()
+    token = parts[1].strip() if len(parts) == 2 and parts[0].lower() == "bearer" else None
+    ip = request.client.host if request.client else "unknown"
     try:
-        key_id = await run_in_threadpool(_authorized, parts[1].strip())
+        key_id = await run_in_threadpool(_check, token, ip)
     except sqlite3.OperationalError as exc:
         raise _busy(exc) from exc
     if key_id is None:

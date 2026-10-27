@@ -86,7 +86,11 @@ uv run threatlens import tests/fixtures/findings.jsonl
 uv run threatlens create-api-key lab_a
 uv run threatlens create-admin you@example.test
 uv run threatlens audit verify
+uv run threatlens user disable you@example.test   # also: enable, revoke-sessions (audited as "cli")
 ```
+
+Five bad ingest keys from one address in 15 minutes lock that address out of ingest (429, even
+with a good key). Sessions write their idle expiry at most every 5 minutes.
 
 Audit anchors (optional, catches a rewrite of the whole database file):
 

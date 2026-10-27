@@ -47,6 +47,36 @@ def _write(conn: sqlite3.Connection, do: Callable[[], None]) -> None:
         raise
 
 
+_OPERATOR_ACTIONS = {
+    "disable": "user.disable",
+    "enable": "user.enable",
+    "revoke-sessions": "user.sessions_revoked",
+}
+
+
+def operator_change(conn: sqlite3.Connection, email: str, action: str, now: datetime) -> None:
+    """`threatlens user ...`: whoever holds the database file may do this, so no role checks,
+    no last-admin rule. disable and revoke-sessions end every session of the user."""
+
+    def run() -> None:
+        row = conn.execute(
+            "SELECT id, email FROM users WHERE email = ?", [email.strip().lower()]
+        ).fetchone()
+        if row is None:
+            raise AccountError(404, "no such user")
+        if action == "enable":
+            conn.execute("UPDATE users SET disabled_at = NULL WHERE id = ?", [row["id"]])
+        else:
+            if action == "disable":
+                conn.execute(
+                    "UPDATE users SET disabled_at = ? WHERE id = ?", [now.isoformat(), row["id"]]
+                )
+            conn.execute("DELETE FROM sessions WHERE user_id = ?", [row["id"]])
+        record(conn, "cli", _OPERATOR_ACTIONS[action], row["id"], {"email": row["email"]}, now)
+
+    _write(conn, run)
+
+
 def change_role(
     conn: sqlite3.Connection, actor: User, user_id: str, role: str, now: datetime
 ) -> None:

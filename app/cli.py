@@ -14,6 +14,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import config
+from .accounts import AccountError, operator_change
 from .anchor import AnchorError, append_anchor, check_anchor, generate_key, load_key
 from .apikeys import create_api_key
 from .audit import record, verify
@@ -146,6 +147,23 @@ def _load_csv(kind: str, path: Path, db: Path) -> int:
     return 0
 
 
+def _user_access(action: str, email: str, db: Path) -> int:
+    if not db.is_file():
+        print(f"no database at {db}", file=sys.stderr)
+        return 1
+    try:
+        with closing(connect(db)) as conn:
+            operator_change(conn, email, action, datetime.now(UTC))
+    except AccountError as exc:
+        print(exc.message, file=sys.stderr)
+        return 1
+    except sqlite3.Error as exc:
+        print(f"database error: {exc}", file=sys.stderr)
+        return 1
+    print(f"{action}: {email.strip().lower()}")
+    return 0
+
+
 def _anchor_paths(args: argparse.Namespace) -> tuple[Path | None, Path | None]:
     key = args.key_file or (Path(config.AUDIT_KEY_FILE) if config.AUDIT_KEY_FILE else None)
     anchor = args.anchor_file or (Path(config.AUDIT_ANCHOR) if config.AUDIT_ANCHOR else None)
@@ -248,7 +266,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     audit.add_argument("--key-file", type=Path, help="default: $THREATLENS_AUDIT_KEY_FILE")
     audit.add_argument("--anchor-file", type=Path, help="default: $THREATLENS_AUDIT_ANCHOR")
     audit.add_argument("--max-age", type=float, default=24.0, help="hours; verify only")
-    for sub in (imp, key, admin, assets, idents, audit):
+    user = commands.add_parser("user", help="disable, enable or sign out an account")
+    user.add_argument("action", choices=["disable", "enable", "revoke-sessions"])
+    user.add_argument("email")
+    for sub in (imp, key, admin, assets, idents, audit, user):
         sub.add_argument("--db", type=Path, default=None, help="default: $THREATLENS_DB_PATH")
     args = parser.parse_args(argv)
     db = args.db or _default_db()
@@ -258,6 +279,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _create_admin(args.email, db)
     if args.command in ("load-assets", "load-identities"):
         return _load_csv(args.command, args.file, db)
+    if args.command == "user":
+        return _user_access(args.action, args.email, db)
     if args.command == "audit":
         if args.action == "keygen":
             return _audit_keygen(args.path)

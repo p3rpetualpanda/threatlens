@@ -76,6 +76,15 @@ async def database_busy(request: Request, exc: sqlite3.OperationalError) -> JSON
     return JSONResponse({"detail": "database error"}, status_code=500)
 
 
+@app.exception_handler(Exception)
+async def unhandled(request: Request, exc: Exception) -> JSONResponse:
+    # Runs outside the middleware above, so the headers are added here. The error is still logged.
+    _log.error("unhandled error on %s", request.url.path, exc_info=exc)
+    return JSONResponse(
+        {"detail": "internal error"}, status_code=500, headers=_security_headers(request.scope)
+    )
+
+
 app.add_middleware(BodyLimit, headers=_security_headers)  # outermost: wraps the 413 too
 app.include_router(ingest_router)
 app.include_router(auth_router)

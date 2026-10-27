@@ -19,6 +19,7 @@ from .users import User
 
 IDLE_TIMEOUT = timedelta(hours=8)
 ABSOLUTE_TIMEOUT = timedelta(hours=24)  # a stolen cookie cannot be kept alive forever
+EXTEND_EVERY = timedelta(minutes=5)  # idle expiry may lag real use by this much
 
 
 @dataclass(frozen=True)
@@ -71,11 +72,14 @@ def get_session(conn: sqlite3.Connection, token: str, now: datetime) -> Session 
         conn.execute("DELETE FROM sessions WHERE id = ?", [row["id"]])
         conn.commit()
         return None
-    conn.execute(
-        "UPDATE sessions SET expires_at = ? WHERE id = ?",
-        [(now + IDLE_TIMEOUT).isoformat(), row["id"]],
-    )
-    conn.commit()
+    # Skip the write when the expiry is already within EXTEND_EVERY of a fresh one: a page of
+    # requests would otherwise take the database write lock on every click.
+    if datetime.fromisoformat(row["expires_at"]) < now + IDLE_TIMEOUT - EXTEND_EVERY:
+        conn.execute(
+            "UPDATE sessions SET expires_at = ? WHERE id = ?",
+            [(now + IDLE_TIMEOUT).isoformat(), row["id"]],
+        )
+        conn.commit()
     return Session(User(row["uid"], row["email"], row["role"]), row["csrf_token"])
 
 

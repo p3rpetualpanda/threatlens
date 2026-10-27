@@ -55,6 +55,13 @@ def reserve(conn: sqlite3.Connection, keys: list[str], now: datetime) -> list[in
     return [int(i) for i in ids if i is not None]
 
 
+def note_failure(conn: sqlite3.Connection, key: str, now: datetime) -> None:
+    """Count one failure for `key` without checking the limit (the ingest key throttle)."""
+    conn.execute("DELETE FROM login_attempts WHERE at <= ?", [(now - WINDOW).isoformat()])
+    conn.execute("INSERT INTO login_attempts (key, at) VALUES (?, ?)", [key, now.isoformat()])
+    conn.commit()
+
+
 def forgive(conn: sqlite3.Connection, user_key: str, attempt_ids: list[int]) -> None:
     """After a good login: drop the username's failures and this attempt's own rows.
 
