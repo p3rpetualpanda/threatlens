@@ -65,7 +65,9 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
         **dict(row),
         "too_common": json.loads(row["too_common"]),
         "risk_factors": json.loads(row["risk_factors"] or "[]"),
-        "risk_label": label(row["risk_score"] or 0, load_risk_config()),
+        "risk_label": None
+        if row["risk_score"] is None
+        else label(row["risk_score"], load_risk_config()),
         "techniques": [
             attack.describe(t) for t in sorted({m["technique"] for m in members if m["technique"]})
         ],

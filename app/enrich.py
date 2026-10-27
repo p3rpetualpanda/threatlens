@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import ipaddress
 import sqlite3
 from datetime import datetime
@@ -27,20 +28,22 @@ def ip_class(value: str) -> str:
     """documentation | loopback | private | public | unknown. No lookups."""
     try:
         ip = ipaddress.ip_address(value.strip())
+        if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+            ip = ip.ipv4_mapped
     except ValueError:
         return "unknown"
     if any(ip in net for net in _DOC_NETS):
         return "documentation"
     if ip.is_loopback:
         return "loopback"
-    if ip.is_private or ip.is_link_local or ip.is_multicast or ip.is_unspecified:
-        return "private"
-    return "public"
+    return "public" if ip.is_global else "private"  # CGNAT, link-local, multicast: not public
 
 
-def _rows(path: Path, columns: list[str]) -> list[dict[str, str]]:
+def _rows(path: Path, columns: list[str]) -> tuple[list[dict[str, str]], str]:
+    """Return the rows and the sha256 of the file."""
     try:
-        text = path.read_text(encoding="utf-8-sig")
+        raw = path.read_bytes()
+        text = raw.decode("utf-8-sig")
     except (OSError, UnicodeDecodeError) as exc:
         raise ValueError(f"cannot read {path}: {exc}") from exc
     lines = [ln for ln in text.splitlines() if ln.strip() and not ln.lstrip().startswith("#")]
@@ -50,7 +53,10 @@ def _rows(path: Path, columns: list[str]) -> list[dict[str, str]]:
     rows = list(reader)
     if not rows:  # an empty file must never wipe the table
         raise ValueError(f"{path}: no rows")
-    return rows
+    for n, r in enumerate(rows, start=2):
+        if None in r or any(v is None for v in r.values()):
+            raise ValueError(f"{path} row {n}: expected {len(columns)} columns")
+    return rows, hashlib.sha256(raw).hexdigest()
 
 
 def _load(
@@ -62,7 +68,7 @@ def _load(
     now: datetime,
 ) -> int:
     """Replace the whole table from the CSV, in one transaction."""
-    rows = _rows(path, columns)
+    rows, digest = _rows(path, columns)
     out: list[tuple[object, ...]] = []
     seen: set[tuple[str, str]] = set()
     for n, r in enumerate(rows, start=2):
@@ -73,9 +79,10 @@ def _load(
             raise ValueError(f"{path} row {n}: duplicate {env}/{name}")
         seen.add((env, name))
         if table == "assets":
-            if r["criticality"] not in ("1", "2", "3"):
+            crit = r["criticality"].strip()
+            if crit not in ("1", "2", "3"):
                 raise ValueError(f"{path} row {n}: criticality must be 1, 2 or 3")
-            out.append((env, name, int(r["criticality"]), r["owner"].strip(), r["role"].strip()))
+            out.append((env, name, int(crit), r["owner"].strip(), r["role"].strip()))
         else:
             flag = _BOOLS.get(r["privileged"].strip().lower())
             if flag is None:
@@ -85,7 +92,14 @@ def _load(
     with conn:
         conn.execute(delete)
         conn.executemany(insert, out)
-        record(conn, "cli", f"{table}.load", None, {"rows": len(out)}, now)
+        record(
+            conn,
+            "cli",
+            f"{table}.load",
+            None,
+            {"rows": len(out), "file": str(path), "sha256": digest},
+            now,
+        )
     return len(out)
 
 

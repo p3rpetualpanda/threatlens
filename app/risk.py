@@ -37,13 +37,32 @@ class RiskConfig:
     label_floors: dict[str, int]
 
 
+def _check_ints(raw: dict[str, Any]) -> None:
+    """Every points value must be a real int (not a bool or float)."""
+    values = [raw[k] for k in _KEYS if k.endswith("_points") and not isinstance(raw[k], dict)]
+    for k in ("severity_points", "criticality_points", "label_floors"):
+        values += raw[k].values()
+    if any(type(v) is not int for v in values):
+        raise ValueError("risk config: points must be whole numbers")
+
+
 def load_risk_config(path: Path | None = None) -> RiskConfig:
-    raw = yaml.safe_load((path or DEFAULT_PATH).read_text(encoding="utf-8"))
+    try:
+        raw = yaml.safe_load((path or DEFAULT_PATH).read_text(encoding="utf-8"))
+    except yaml.YAMLError as exc:
+        raise ValueError(f"risk config is not valid YAML: {exc}") from exc
     if not isinstance(raw, dict):
         raise ValueError("risk config must be a mapping")
     if raw.keys() != _KEYS:
         raise ValueError(f"risk config keys differ: {sorted(raw.keys() ^ _KEYS)}")
-    return RiskConfig(
+    for key in ("severity_points", "criticality_points", "label_floors"):
+        if not isinstance(raw[key], dict):
+            raise ValueError(f"risk config: {key} must be a mapping")
+    for key in ("progress_tactics", "auth_tactics"):
+        if not isinstance(raw[key], list):
+            raise ValueError(f"risk config: {key} must be a list")
+    _check_ints(raw)
+    cfg = RiskConfig(
         severity_points={str(k): int(v) for k, v in raw["severity_points"].items()},
         extra_tactic_points=int(raw["extra_tactic_points"]),
         progress_tactics=frozenset(str(t) for t in raw["progress_tactics"]),
@@ -54,6 +73,17 @@ def load_risk_config(path: Path | None = None) -> RiskConfig:
         public_ip_points=int(raw["public_ip_points"]),
         label_floors={str(k): int(v) for k, v in raw["label_floors"].items()},
     )
+    points = [
+        *cfg.severity_points.values(),
+        *cfg.criticality_points.values(),
+        cfg.extra_tactic_points,
+        cfg.progress_points,
+        cfg.privileged_points,
+        cfg.public_ip_points,
+    ]
+    if any(p < 0 for p in points):
+        raise ValueError("risk config: points must not be negative")
+    return cfg
 
 
 def score(

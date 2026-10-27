@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from app.risk import RiskConfig, label, load_risk_config, score
+from app.risk import DEFAULT_PATH, RiskConfig, label, load_risk_config, score
 
 CFG = load_risk_config()
 
@@ -87,3 +87,19 @@ def test_asset_privileged_and_public_ip_factors() -> None:
 def test_criticality_one_and_unknown_score_nothing() -> None:
     assert score([], set(), CFG, criticality=1)[1] == []
     assert score([], set(), CFG, criticality=9)[1] == []
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    [
+        ("{Low: 10, Medium: 20, High: 35, Critical: 50}", "[1, 2]"),
+        ("progress_points: 10", "progress_points: -1"),
+        ("progress_points: 10", "progress_points: true"),
+        ("progress_points: 10", "progress_points: [1"),
+    ],
+)
+def test_rejects_bad_values(tmp_path: Path, old: str, new: str) -> None:
+    p = tmp_path / "r.yml"
+    p.write_text(DEFAULT_PATH.read_text(encoding="utf-8").replace(old, new, 1), encoding="utf-8")
+    with pytest.raises(ValueError):
+        load_risk_config(p)

@@ -37,6 +37,9 @@ def conn(tmp_path: Path) -> Iterator[sqlite3.Connection]:
         ("8.8.8.8", "public"),
         ("2606:4700::1111", "public"),
         (" 8.8.8.8 ", "public"),
+        ("100.64.1.1", "private"),
+        ("::ffff:8.8.8.8", "public"),
+        ("::ffff:10.0.0.1", "private"),
         ("not-an-ip", "unknown"),
         ("", "unknown"),
     ],
@@ -70,6 +73,8 @@ def test_load_assets_lowercases_and_replaces(conn: sqlite3.Connection, tmp_path:
         ("environment,host,criticality,owner,role\ne,h,4,,\n", "criticality"),
         ("environment,host,criticality,owner,role\ne,,1,,\n", "required"),
         ("environment,host,criticality,owner,role\ne,H,1,,\ne,h,2,,\n", "duplicate"),
+        ("environment,host,criticality,owner,role\ne,h,2\n", "columns"),
+        ("environment,host,criticality,owner,role\ne,h,2,a,b,c\n", "columns"),
     ],
 )
 def test_bad_assets_are_refused_and_keep_old_rows(
@@ -150,3 +155,10 @@ def test_shipped_demo_csvs_load(conn: sqlite3.Connection) -> None:
     root = Path(__file__).resolve().parent.parent / "config"
     assert load_assets(conn, root / "assets.csv", NOW) == 2
     assert load_identities(conn, root / "identities.csv", NOW) == 2
+
+
+def test_load_audit_records_file_hash(conn: sqlite3.Connection, tmp_path: Path) -> None:
+    text = "environment,host,criticality,owner,role\ne,h,1,,\n"
+    load_assets(conn, csv(tmp_path, text), NOW)
+    detail = conn.execute("SELECT detail FROM audit_log WHERE action = 'assets.load'").fetchone()[0]
+    assert '"sha256"' in detail and "x.csv" in detail

@@ -15,7 +15,7 @@ from pathlib import Path
 
 from . import config
 from .apikeys import create_api_key
-from .audit import verify
+from .audit import record, verify
 from .contract import validate_findings
 from .db import connect, migrate
 from .enrich import load_assets, load_identities
@@ -133,6 +133,7 @@ def _load_csv(kind: str, path: Path, db: Path) -> int:
             conn.execute("BEGIN IMMEDIATE")
             try:
                 changed = rescore(conn, now)
+                record(conn, "cli", "incidents.rescore", None, {"changed": len(changed)}, now)
                 conn.commit()
             except BaseException:
                 conn.rollback()
