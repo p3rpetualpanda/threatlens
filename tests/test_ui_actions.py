@@ -113,7 +113,7 @@ def test_analyst_works_an_incident_through_the_forms(ctx: Ctx) -> None:
 
     r = act(c, csrf, ctx.a, "take")
 
-    assert (r.status_code, r.headers["location"]) == (303, f"/incidents/{ctx.a}?done=take")
+    assert (r.status_code, r.headers["location"]) == (303, f"/incidents/{ctx.a}")
 
     assert row(ctx.a)["status"] == "in_progress" and audited("incident.take")
 
@@ -352,16 +352,17 @@ def test_success_shows_a_fixed_message_once(ctx: Ctx) -> None:
     page = ann.get(act(ann, acsrf, ctx.a, "take").headers["location"])
     assert 'role="status"' in page.text and "Incident taken" in page.text
     assert "Incident taken" not in ann.get(f"/incidents/{ctx.a}").text
-    for junk in (XSS, "nope", "x" * 50):
+    # a typed query value never produces a message
+    for junk in ("take", XSS, "x" * 50):
         shown = ann.get(f"/incidents/{ctx.a}", params={"done": junk})
-        assert shown.status_code in (200, 422) and 'role="status"' not in shown.text
+        assert shown.status_code == 200 and 'role="status"' not in shown.text
 
 
 def test_merge_message_survives_the_redirect_to_the_survivor(ctx: Ctx) -> None:
     lead, csrf = login("lead")
     first = act(lead, csrf, ctx.b, "merge", into=ctx.a).headers["location"]
     second = lead.get(first)
-    assert second.status_code == 303 and second.headers["location"].endswith("?done=merge")
+    assert second.status_code == 303
     assert "Incidents merged" in lead.get(second.headers["location"]).text
 
 

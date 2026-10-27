@@ -19,7 +19,7 @@ from fastapi.templating import Jinja2Templates
 from pydantic import BeforeValidator, ValidationError
 from starlette.concurrency import run_in_threadpool
 
-from . import config
+from . import config, flash
 from .auth import LoginBody, login, require_role
 from .db import connect
 from .enrich import ip_class
@@ -166,7 +166,7 @@ def _entities(conn: Any, incident_id: str, environment: str) -> list[dict[str, s
     return out
 
 
-# ?done=<key> after a good action; only these fixed texts are ever shown, never the query value
+# one-shot flash (app.flash) after a good action; only these fixed texts are ever shown
 DONE = {
     "take": "Incident taken.",
     "assign": "Owner updated.",
@@ -184,7 +184,6 @@ def render_incident(
     incident_id: str,
     code: int = 200,
     error: str | None = None,
-    done: str | None = None,
 ) -> Response:
     """The incident page; `error` and `code` carry a refused action back to the same page."""
     try:
@@ -194,8 +193,7 @@ def render_incident(
     if inc["merged_into"]:  # the queue hides merged incidents; follow the merge
         if error:  # a stale tab acted on the merged one: show the message on the survivor
             return render_incident(request, session, inc["merged_into"], code, error)
-        suffix = f"?done={done}" if done in DONE else ""
-        return RedirectResponse(f"/incidents/{quote(inc['merged_into'])}{suffix}", status_code=303)
+        return RedirectResponse(f"/incidents/{quote(inc['merged_into'])}", status_code=303)
     with closing(connect(config.DB_PATH)) as conn:
         timeline = conn.execute(
             "SELECT a.finding_info_uid AS uid, a.time, a.rule, a.severity, a.technique, "
@@ -232,7 +230,7 @@ def render_incident(
         timeline=timeline,
         can=can,
         error=error,
-        notice=DONE.get(done or ""),
+        notice=DONE.get(str(flash.pop(session.csrf_token, "done"))),
     )
 
 
@@ -240,12 +238,11 @@ def render_incident(
 def incident(
     request: Request,
     incident_id: Annotated[str, PathParam(max_length=64)],
-    done: Annotated[str | None, Query(max_length=20)] = None,
 ) -> Response:
     session = _viewer(request)
     if session is None:
         return RedirectResponse("/login", status_code=303)
-    return render_incident(request, session, incident_id, done=done)
+    return render_incident(request, session, incident_id)
 
 
 @router.get("/alerts/{uid:path}", response_class=HTMLResponse, include_in_schema=False)

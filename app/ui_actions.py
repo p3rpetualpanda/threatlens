@@ -19,7 +19,7 @@ from fastapi import Path as PathParam
 from fastapi.responses import RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from . import config, workflow
+from . import config, flash, workflow
 from .auth import COOKIE, logout
 from .db import connect
 from .sessions import Session, get_session
@@ -116,7 +116,8 @@ def _register(name: str, minimum: str, call: Call) -> None:
             return await run_in_threadpool(
                 render_incident, request, session, incident_id, exc.status, exc.message
             )
-        return RedirectResponse(f"/incidents/{quote(incident_id)}?done={name}", status_code=303)
+        flash.put(session.csrf_token, "done", name)
+        return RedirectResponse(f"/incidents/{quote(incident_id)}", status_code=303)
 
     router.add_api_route(
         f"/incidents/{{incident_id}}/{name}", handler, methods=["POST"], include_in_schema=False

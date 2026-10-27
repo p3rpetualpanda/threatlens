@@ -106,7 +106,9 @@ def test_key_pages_are_admin_only(db: Path) -> None:
 
 def test_admin_creates_a_key_that_works_and_is_shown_once(db: Path) -> None:
     c, csrf = login("admin")
-    r = post(c, "/admin/keys", csrf, name=XSS)
+    posted = post(c, "/admin/keys", csrf, name=XSS)
+    assert (posted.status_code, posted.headers["location"]) == (303, "/admin/keys")
+    r = c.get("/admin/keys")
     assert r.status_code == 200 and XSS not in r.text and ESCAPED in r.text
     token = r.text.split('<code class="token">')[1].split("</code>")[0]
     with closing(connect(config.DB_PATH)) as conn:
@@ -129,11 +131,8 @@ def test_key_name_is_required_and_a_wrong_csrf_creates_nothing(db: Path) -> None
 
 def test_admin_revokes_a_key(db: Path) -> None:
     c, csrf = login("admin")
-    token = (
-        post(c, "/admin/keys", csrf, name="lab")
-        .text.split('<code class="token">')[1]
-        .split("</code>")[0]
-    )
+    post(c, "/admin/keys", csrf, name="lab")
+    token = c.get("/admin/keys").text.split('<code class="token">')[1].split("</code>")[0]
     with closing(connect(config.DB_PATH)) as conn:
         key_id = conn.execute("SELECT id FROM api_keys").fetchone()[0]
     assert post(c, f"/admin/keys/{key_id}/revoke", "wrong").status_code == 403
@@ -145,3 +144,25 @@ def test_admin_revokes_a_key(db: Path) -> None:
     assert "revoked" in c.get("/admin/keys").text
     gone = post(c, "/admin/keys/nope/revoke", csrf)
     assert gone.status_code == 404 and "text/html" in gone.headers["content-type"]
+
+
+def test_refreshing_the_create_post_page_shows_no_token_and_makes_no_second_key(db: Path) -> None:
+    c, csrf = login("admin")
+    r = post(c, "/admin/keys", csrf, name="lab")
+    assert r.status_code == 303 and "token" not in r.headers["location"]
+    assert '<code class="token">' in c.get(r.headers["location"]).text
+    assert '<code class="token">' not in c.get("/admin/keys").text
+    with closing(connect(config.DB_PATH)) as conn:
+        assert conn.execute("SELECT count(*) FROM api_keys").fetchone()[0] == 1
+
+
+def test_audit_check_is_reused_until_the_log_changes(db: Path) -> None:
+    c, _ = login("lead")
+    assert "chain intact" in c.get("/audit").text
+    with closing(connect(config.DB_PATH)) as conn:
+        conn.execute("UPDATE audit_log SET actor = 'x' WHERE id = 1")
+        conn.commit()
+    assert "chain intact" in c.get("/audit").text  # cached for 30 s; documented shortcut
+    admin, csrf = login("admin")
+    post(admin, "/admin/keys", csrf, name="new")  # a new row invalidates the cache
+    assert "broken at row 1" in c.get("/audit").text

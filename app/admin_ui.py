@@ -7,6 +7,8 @@ out of caches and it is never written to the audit log.
 
 from __future__ import annotations
 
+import sqlite3
+import time
 import unicodedata
 from contextlib import closing
 from datetime import UTC, datetime
@@ -17,7 +19,7 @@ from fastapi import Path as PathParam
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
-from . import config
+from . import config, flash
 from .apikeys import create_api_key, revoke_api_key
 from .audit import verify
 from .db import connect
@@ -29,6 +31,26 @@ from .users import ROLES
 router = APIRouter()
 _PAGE = 50
 _MAX_NAME = 100
+_VERIFY_TTL = 30.0
+_verified_at: tuple[float, str, int, int | None] | None = None  # time, db, last id, result
+
+
+def _verified(conn: sqlite3.Connection) -> int | None:
+    """verify() walks the whole chain, so reuse a result for 30 s while the log is unchanged.
+
+    shortcut: an edit made in the middle of the chain shows up within 30 s, not at once, and a
+    lead reloading /audit can no longer hold the database busy; move to incremental checking
+    once the log reaches hundreds of thousands of rows.
+    """
+    global _verified_at
+    last = conn.execute("SELECT COALESCE(MAX(id), 0) FROM audit_log").fetchone()[0]
+    db = str(config.DB_PATH)
+    now = time.monotonic()
+    if _verified_at and _verified_at[1:3] == (db, last) and now - _verified_at[0] < _VERIFY_TTL:
+        return _verified_at[3]
+    result = verify(conn)
+    _verified_at = (now, db, last, result)
+    return result
 
 
 def _need(request: Request, minimum: str) -> Session | Response:
@@ -48,9 +70,7 @@ def audit_log(
     if isinstance(session, Response):
         return session
     with closing(connect(config.DB_PATH)) as conn:
-        # shortcut: verify() walks the whole chain on every view; fine at lab size, cache or
-        # cap it once the log reaches tens of thousands of rows
-        broken = verify(conn)
+        broken = _verified(conn)
         rows = conn.execute(
             "SELECT id, at, actor, action, target, detail FROM audit_log "
             "WHERE (?1 IS NULL OR id < ?1) ORDER BY id DESC LIMIT ?2",
@@ -72,14 +92,14 @@ def _keys(
     request: Request,
     session: Session,
     code: int = 200,
-    token: str | None = None,
-    name: str | None = None,
+    created: tuple[str, str] | None = None,
     error: str | None = None,
 ) -> Response:
+    token, name = (created[1], created[0]) if created else (None, None)
     with closing(connect(config.DB_PATH)) as conn:
         rows = conn.execute(
             "SELECT id, name, scope, created_at, revoked_at FROM api_keys "
-            "ORDER BY created_at DESC, id"
+            "ORDER BY created_at DESC, id LIMIT 500"
         ).fetchall()
     return _page(
         request, "keys.html", session, code, rows=rows, token=token, key_name=name, error=error
@@ -91,7 +111,7 @@ def key_list(request: Request) -> Response:
     session = _need(request, "admin")
     if isinstance(session, Response):
         return session
-    return _keys(request, session)
+    return _keys(request, session, created=flash.pop(session.csrf_token, "key"))
 
 
 def _create(actor: str, name: str) -> str:
@@ -118,9 +138,11 @@ async def key_create(request: Request) -> Response:
         or any(unicodedata.category(ch) in ("Cc", "Cf") for ch in name)
     ):
         msg = f"name must be 1 to {_MAX_NAME} characters"
-        return await run_in_threadpool(_keys, request, session, 422, None, None, msg)
+        return await run_in_threadpool(_keys, request, session, 422, None, msg)
     token = await run_in_threadpool(_create, session.user.email, name)
-    return await run_in_threadpool(_keys, request, session, 200, token, name)
+    # redirect so a refresh cannot repeat the POST; the token waits in memory for one page view
+    flash.put(session.csrf_token, "key", (name, token))
+    return RedirectResponse("/admin/keys", status_code=303)
 
 
 @router.post("/admin/keys/{key_id}/revoke", include_in_schema=False)

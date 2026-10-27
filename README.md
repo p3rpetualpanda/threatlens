@@ -8,7 +8,7 @@ ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M5c done)
+## Current state (v2, M5c done; M5d slices A-C done)
 
 - FastAPI app: `/health`, ingest, and JSON login (`POST /api/v1/login`, `/logout`, `GET /me`).
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
@@ -44,6 +44,11 @@ workflow. It does no detection of its own.
   service still enforces. Forms carry a hidden CSRF field and an Origin check. Jinja2 autoescape,
   no inline script or style, no JavaScript.
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
+- Admin pages (M5d): a fixed one-shot message after each good action. `/audit` (lead and admin)
+  lists the newest 50 audit rows and the hash-chain result (re-checked at most every 30 s).
+  `/admin/keys` (admin only) lists, creates and revokes ingest keys; a new token is shown once,
+  on the page after the create redirect, and never logged. Users and roles pages (slice D) are
+  not built.
 - Accounts: argon2id passwords, roles viewer < analyst < lead < admin, server-side sessions
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per
   15 min, security headers. `threatlens create-admin EMAIL` makes the first admin (no default
