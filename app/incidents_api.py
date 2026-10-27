@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from contextlib import closing
 from typing import Annotated, Any, Literal
 
@@ -38,7 +39,8 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
     with closing(connect(config.DB_PATH)) as conn:
         row = conn.execute(
             "SELECT id, environment, title, status, disposition, owner, risk_score, first_seen, "
-            "last_seen, related_incident, merged_into, touched FROM incidents WHERE id = ?",
+            "last_seen, related_incident, merged_into, touched, too_common "
+            "FROM incidents WHERE id = ?",
             [incident_id],
         ).fetchone()
         if row is None:
@@ -57,4 +59,9 @@ def get_incident(incident_id: Annotated[str, Path(max_length=64)]) -> dict[str, 
         )
         entry["count"] += 1
         entry["uids"].append(m["uid"])
-    return {**dict(row), "alert_count": len(members), "alerts": list(folded.values())}
+    return {
+        **dict(row),
+        "too_common": json.loads(row["too_common"]),
+        "alert_count": len(members),
+        "alerts": list(folded.values()),
+    }

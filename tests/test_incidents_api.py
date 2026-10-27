@@ -64,6 +64,7 @@ def test_detail_explains_membership(client: TestClient) -> None:
     lab_a = client.get("/api/v1/incidents", params={"environment": "lab_a"}).json()["incidents"][0]
     detail = client.get(f"/api/v1/incidents/{lab_a['id']}").json()
     assert detail["alert_count"] == 2
+    assert detail["too_common"] == []
     assert {a["rule"] for a in detail["alerts"]} == {"R05", "R01"}
     assert any("shares host `scranton`" in a["why"] for a in detail["alerts"])
 

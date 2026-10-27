@@ -29,6 +29,7 @@ class _Group:
     members: set[str] = field(default_factory=set)
     frozen: set[str] = field(default_factory=set)
     why: dict[str, str] = field(default_factory=dict)
+    too_common: frozenset[str] = frozenset()
 
 
 def _ms(value: Any) -> datetime | None:
@@ -86,7 +87,12 @@ def recorrelate(conn: sqlite3.Connection, environment: str, now: datetime) -> li
     movable = {a.uid for a in alerts} - pinned - frozen_alerts
 
     groups = [
-        _Group(set(c.uids & movable), {member_of[a] for a in c.uids & frozen_alerts}, c.why)
+        _Group(
+            set(c.uids & movable),
+            {member_of[a] for a in c.uids & frozen_alerts},
+            c.why,
+            c.too_common,
+        )
         for c in partition(alerts, load_config())
     ]
     groups = [g for g in _join_on_touched(groups, member_of, incidents) if g.members]
@@ -133,6 +139,7 @@ def _join_on_touched(
             g.members |= prev.members
             g.frozen |= prev.frozen
             g.why |= prev.why
+            g.too_common |= prev.too_common
         out.append(g)
     return out
 
@@ -155,6 +162,17 @@ def _merge(conn: sqlite3.Connection, loser: str, winner: str, stamp: str, now: d
         [winner, loser],
     )
     conn.execute("DELETE FROM playbook_progress WHERE incident_id = ?", [loser])
+    # The winner keeps its own analyst state and takes whatever the loser had that it lacks.
+    conn.execute(
+        "UPDATE incidents SET "
+        "owner = COALESCE(owner, (SELECT owner FROM incidents WHERE id = ?1)), "
+        "disposition = COALESCE(disposition, (SELECT disposition FROM incidents WHERE id = ?1)), "
+        "status = CASE WHEN status = 'new' THEN (SELECT status FROM incidents WHERE id = ?1) "
+        "ELSE status END, "
+        "touched = touched OR (SELECT touched FROM incidents WHERE id = ?1), "
+        "updated_at = ?3 WHERE id = ?2",
+        [loser, winner, stamp],
+    )
     conn.execute(
         "UPDATE incidents SET merged_into = ?, updated_at = ? WHERE id = ?", [winner, stamp, loser]
     )
@@ -179,8 +197,6 @@ def _sync(
         )
     }
     desired = set(g.members) | (set(cur) & pinned)
-    if row["touched"]:
-        desired |= set(cur)  # a touched incident never loses alerts
     moved = False
     for a in set(cur) - desired:
         conn.execute("DELETE FROM incident_alerts WHERE incident_id = ? AND alert_id = ?", [iid, a])
@@ -207,13 +223,20 @@ def _sync(
         min(spans[a][0] for a in desired).isoformat(timespec="milliseconds"),
         max(spans[a][1] for a in desired).isoformat(timespec="milliseconds"),
         row["related_incident"] or (min(g.frozen) if g.frozen else None),
+        json.dumps(sorted(g.too_common)),
     )
-    same = values == (row["title"], row["first_seen"], row["last_seen"], row["related_incident"])
+    same = values == (
+        row["title"],
+        row["first_seen"],
+        row["last_seen"],
+        row["related_incident"],
+        row["too_common"],
+    )
     if same and not moved:
         return False
     conn.execute(
         "UPDATE incidents SET title = ?, first_seen = ?, last_seen = ?, related_incident = ?, "
-        "updated_at = ? WHERE id = ?",
+        "too_common = ?, updated_at = ? WHERE id = ?",
         [*values, stamp, iid],
     )
     return True

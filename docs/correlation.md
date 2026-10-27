@@ -9,11 +9,12 @@ Stoplists stop common values from joining everything into one incident:
 - Config: users `system`, `local service`, `network service`, `anonymous logon`, `-`, and any
   name ending in `$`.
 - Automatic: a value in more than 20% of an environment's alerts, once the environment has at
-  least 50 alerts. `partition` returns which values were dropped.
+  least 50 alerts. Each incident records which values were dropped (`too_common`, shown by the detail endpoint).
 
 Analyst state: a resolved incident is frozen (new linked alerts open a new incident that points
 back with `related_incident`); a touched incident never splits; bridging merges keep the oldest
-(touched first) and move comments and playbook rows; incident ids never change.
+(touched first), move comments and playbook rows, and give the winner the loser's owner,
+disposition and status where it has none; incident ids never change.
 
 ## Measurement
 

@@ -10,6 +10,7 @@ import pytest
 from incident_helpers import NOW, add, run
 
 from app.db import connect, migrate
+from app.users import create_user
 
 
 @pytest.fixture
@@ -196,3 +197,34 @@ def test_touched_incident_keeps_its_title(conn: sqlite3.Connection) -> None:
     assert conn.execute("SELECT title FROM incidents WHERE id=?", [iid]).fetchone()[0] == (
         "Analyst title"
     )
+
+
+def test_merge_gives_winner_the_losers_owner_and_status(conn: sqlite3.Connection) -> None:
+    older, newer = _bridge_setup(conn)
+    uid = create_user(conn, "o@example.test", "correct horse battery", "analyst", NOW)
+    owner = uid if isinstance(uid, str) else uid.id
+    conn.execute("UPDATE incidents SET created_at = '2026-01-01' WHERE id = ?", [older])
+    conn.execute(
+        "UPDATE incidents SET touched = 1, status = 'in_progress', owner = ? WHERE id = ?",
+        [owner, newer],
+    )
+    conn.execute("UPDATE incidents SET touched = 1 WHERE id = ?", [older])  # both touched
+    add(conn, "c", 100, host="h1", user="u")
+    add(conn, "d", 200, host="h2", user="u")
+    run(conn)
+    row = conn.execute("SELECT * FROM incidents WHERE merged_into IS NULL").fetchone()
+    assert (row["id"], row["owner"], row["status"], row["touched"]) == (
+        older,
+        owner,
+        "in_progress",
+        1,
+    )
+
+
+def test_auto_stoplisted_values_are_recorded(conn: sqlite3.Connection) -> None:
+    for i in range(50):
+        add(conn, f"a{i:02}", 0, host="h")
+    run(conn)
+    rows = conn.execute("SELECT too_common FROM incidents").fetchall()
+    assert len(rows) == 50
+    assert {r["too_common"] for r in rows} == {'["host:h"]'}
