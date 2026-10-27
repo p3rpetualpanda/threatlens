@@ -85,3 +85,12 @@ def verify_from(
 def verify(conn: sqlite3.Connection) -> int | None:
     """Return the id of the first row that breaks the chain, or None if it is intact."""
     return verify_from(conn)[0]
+
+
+def append_only(conn: sqlite3.Connection) -> bool:
+    """True while both triggers from migration 008 exist."""
+    found = conn.execute(
+        "SELECT count(*) FROM sqlite_master WHERE type = 'trigger' "
+        "AND name IN ('audit_no_update', 'audit_no_delete')"
+    ).fetchone()[0]
+    return bool(found == 2)

@@ -21,7 +21,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import config, flash
 from .apikeys import create_api_key, revoke_api_key
-from .audit import Checkpoint, verify_from
+from .audit import Checkpoint, append_only, verify_from
 from .auth import cookie_secure
 from .db import connect
 from .sessions import Session
@@ -49,12 +49,14 @@ def _need(request: Request, minimum: str) -> Session | Response:
 
 
 def _chain_status(conn: sqlite3.Connection) -> int | None:
-    """First broken row id or None. Rows after the last checkpoint are checked on every view; the
-    whole chain (0.24 s per 50,000 rows) every _FULL_EVERY s, so an edit to an old row shows up
-    within that time. `threatlens audit verify` is always a full pass."""
+    """First broken row id or None. The append-only triggers (migration 008) stop edits through
+    SQL, so a view checks the rows after the last checkpoint. The whole chain (0.24 s per 50,000
+    rows) is re-checked every _FULL_EVERY s, and on every view if the triggers are gone, so a
+    rewrite of the file shows up. `threatlens audit verify` is always a full pass."""
     key, now = str(config.DB_PATH), time.monotonic()
     point, full_at = _checked.get(key, (None, 0.0))
-    full = point is None or now - full_at >= _FULL_EVERY
+    # while the log cannot be edited through SQL an old row cannot change, so a checkpoint is enough
+    full = point is None or now - full_at >= _FULL_EVERY or not append_only(conn)
     broken, last = verify_from(conn, None if full else point)
     if broken is None:
         _checked[key] = (last, now if full else full_at)

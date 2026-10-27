@@ -11,7 +11,7 @@ import pytest
 
 from app import cli
 from app.apikeys import create_api_key, lookup_api_key, revoke_api_key
-from app.audit import record, verify
+from app.audit import append_only, record, verify
 from app.db import connect, migrate
 from app.ingest import ingest_findings
 
@@ -52,9 +52,26 @@ def test_rows_are_chained_and_verify(conn: sqlite3.Connection) -> None:
     assert verify(conn) is None
 
 
+def _unlock(conn: sqlite3.Connection) -> None:
+    """Drop the append-only triggers, as someone with the database file could."""
+    conn.execute("DROP TRIGGER audit_no_update")
+    conn.execute("DROP TRIGGER audit_no_delete")
+
+
+def test_the_log_cannot_be_edited_or_deleted_through_sql(conn: sqlite3.Connection) -> None:
+    _fill(conn)
+    assert append_only(conn)
+    for sql in ("UPDATE audit_log SET actor = 'x'", "DELETE FROM audit_log"):
+        with pytest.raises(sqlite3.DatabaseError, match="append-only"):
+            conn.execute(sql)
+    _unlock(conn)
+    assert not append_only(conn)
+
+
 @pytest.mark.parametrize("column", ["at", "actor", "action", "target", "detail", "prev_hash"])
 def test_editing_any_field_is_detected(conn: sqlite3.Connection, column: str) -> None:
     _fill(conn)
+    _unlock(conn)
     conn.execute(f"UPDATE audit_log SET {column} = 'tampered' WHERE id = 2")  # noqa: S608
     conn.commit()
     assert verify(conn) == 2
@@ -62,6 +79,7 @@ def test_editing_any_field_is_detected(conn: sqlite3.Connection, column: str) ->
 
 def test_renumbering_a_row_is_detected(conn: sqlite3.Connection) -> None:
     _fill(conn)
+    _unlock(conn)
     conn.execute("UPDATE audit_log SET id = 99 WHERE id = 3")
     conn.commit()
     assert verify(conn) == 99
@@ -69,6 +87,7 @@ def test_renumbering_a_row_is_detected(conn: sqlite3.Connection) -> None:
 
 def test_deleting_a_middle_row_is_detected(conn: sqlite3.Connection) -> None:
     _fill(conn)
+    _unlock(conn)
     conn.execute("DELETE FROM audit_log WHERE id = 2")
     conn.commit()
     assert verify(conn) == 3
@@ -76,6 +95,7 @@ def test_deleting_a_middle_row_is_detected(conn: sqlite3.Connection) -> None:
 
 def test_rewriting_a_hash_breaks_the_next_row(conn: sqlite3.Connection) -> None:
     _fill(conn)
+    _unlock(conn)
     conn.execute("UPDATE audit_log SET hash = 'f' WHERE id = 1")
     conn.commit()
     assert verify(conn) == 1
@@ -83,6 +103,7 @@ def test_rewriting_a_hash_breaks_the_next_row(conn: sqlite3.Connection) -> None:
 
 def test_missing_hash_is_detected(conn: sqlite3.Connection) -> None:
     _fill(conn)
+    _unlock(conn)
     conn.execute("UPDATE audit_log SET hash = NULL WHERE id = 3")
     conn.commit()
     assert verify(conn) == 3
@@ -179,6 +200,7 @@ def test_cli_verify_ok_and_tampered(
     _fill(conn)
     assert cli.main(["audit", "verify", "--db", str(db)]) == 0
     assert "3 rows" in capsys.readouterr().out
+    _unlock(conn)
     conn.execute("UPDATE audit_log SET actor = 'mallory' WHERE id = 2")
     conn.commit()
     assert cli.main(["audit", "verify", "--db", str(db)]) == 1

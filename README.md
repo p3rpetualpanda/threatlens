@@ -45,7 +45,7 @@ workflow. It does no detection of its own.
   no inline script or style, no JavaScript.
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Admin pages (M5d): a fixed one-shot message after each good action. `/audit` (lead and admin)
-  lists the newest 50 audit rows (leads do not see login rows; admins do) and the hash-chain result (new rows checked on every view, the whole chain every 10 minutes).
+  lists the newest 50 audit rows (leads do not see login rows; admins do) and the hash-chain result (new rows checked on every view; the whole chain every 10 minutes, or every view if the append-only triggers are gone).
   `/admin/keys` (admin only) lists, creates and revokes ingest keys; a new token is shown once,
   on the page after the create redirect, and never logged (a 60 s HttpOnly cookie carries it across the redirect; the database never holds it; the cookie is `Secure` off localhost). Users and roles pages (slice D) are
   not built.

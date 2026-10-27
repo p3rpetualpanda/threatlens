@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import Iterator
 from contextlib import closing
 from datetime import UTC, datetime
@@ -75,6 +76,7 @@ def test_audit_page_is_for_lead_and_admin(db: Path) -> None:
 def test_audit_page_reports_a_broken_chain(db: Path) -> None:
     c, _ = login("lead")
     with closing(connect(config.DB_PATH)) as conn:
+        _unlock(conn)
         conn.execute("UPDATE audit_log SET actor = 'mallory' WHERE id = 1")
         conn.commit()
     page = c.get("/audit").text
@@ -157,30 +159,48 @@ def test_refreshing_the_create_post_page_shows_no_token_and_makes_no_second_key(
         assert conn.execute("SELECT count(*) FROM api_keys").fetchone()[0] == 1
 
 
+def _unlock(conn: sqlite3.Connection) -> None:
+    conn.execute("DROP TRIGGER IF EXISTS audit_no_update")
+
+
 def _edit_row(row_id: int) -> None:
     with closing(connect(config.DB_PATH)) as conn:
+        _unlock(conn)
         conn.execute("UPDATE audit_log SET actor = 'x' WHERE id = ?", [row_id])
         conn.commit()
 
 
-def test_audit_check_sees_a_middle_edit_after_the_full_pass_interval(
-    db: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(admin_ui, "_FULL_EVERY", 0)
+def test_audit_check_sees_a_middle_edit_at_once_when_the_triggers_are_gone(db: Path) -> None:
     c, _ = login("lead")
     assert "chain intact" in c.get("/audit").text
-    _edit_row(1)
+    _edit_row(1)  # the file was rewritten with the append-only triggers dropped
     assert "broken at row 1" in c.get("/audit").text
 
 
-def test_between_full_passes_new_rows_and_the_checkpoint_row_are_still_checked(db: Path) -> None:
+def test_an_old_row_edit_shows_after_the_full_pass_interval(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(admin_ui, "append_only", lambda conn: True)
+    c, _ = login("lead")
+    assert "chain intact" in c.get("/audit").text
+    _edit_row(1)
+    assert "chain intact" in c.get("/audit").text  # between full passes
+    monkeypatch.setattr(admin_ui, "_FULL_EVERY", 0)
+    assert "broken at row 1" in c.get("/audit").text
+
+
+def test_between_full_passes_new_rows_and_the_checkpoint_row_are_still_checked(
+    db: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(admin_ui, "append_only", lambda conn: True)
     c, _ = login("lead")
     assert "chain intact" in c.get("/audit").text  # full pass; checkpoint at the newest row
+    checkpoint = admin_ui._checked[str(config.DB_PATH)][0][0]  # type: ignore[index]
     add_audit(3)
-    _edit_row(admin_ui._checked[str(config.DB_PATH)][0][0] + 2)  # type: ignore[index]
+    _edit_row(checkpoint + 2)
     assert "broken at row" in c.get("/audit").text  # a new row, found without a full pass
-    _edit_row(1)
-    assert "broken at row" in c.get("/audit").text
+    _edit_row(checkpoint)
+    assert "broken at row" in c.get("/audit").text  # the checkpoint row itself
 
 
 def test_a_clean_view_moves_the_checkpoint_to_the_newest_row(db: Path) -> None:
