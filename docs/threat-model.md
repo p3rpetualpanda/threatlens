@@ -76,7 +76,7 @@ the database anyway).
 
 | Threat | Mitigation | Proof |
 |---|---|---|
-| Tampering with the audit log | Hash chain: each row's hash covers the previous hash; `threatlens audit verify` exits 1 and names the first bad row. This catches accidental and naive edits only: there is no secret and no trigger, so someone who can write the file can rewrite the rows and recompute the hashes (gap 1) | `test_editing_any_field_is_detected`, `test_deleting_a_middle_row_is_detected`, `test_cli_verify_ok_and_tampered` |
+| Tampering with the audit log | Hash chain: each row's hash covers the previous hash; `threatlens audit verify` exits 1 and names the first bad row. This catches accidental and naive edits only: the chain alone has no secret, so someone who can write the file can rewrite the rows and recompute the hashes unless anchoring is on (gap 1) | `test_editing_any_field_is_detected`, `test_deleting_a_middle_row_is_detected`, `test_cli_verify_ok_and_tampered`, `tests/test_anchor.py` |
 | Tampering during migration | Each migration is one transaction; a failed or raced migration leaves no half schema | `tests/test_migrations.py` |
 | Secrets at rest | No default admin; `create-admin` reads a prompt or `$THREATLENS_ADMIN_PASSWORD`; passwords and tokens never reach the audit log | `test_cli_create_admin_*`, `test_api_key_create_and_revoke_are_audited` |
 | Admin pages: key token exposure | The token is shown once, after a POST-redirect, from a 60 s HttpOnly, SameSite=Strict cookie scoped to `/admin/keys` (`Secure` off localhost, deleted on the first view); it is not in a URL, the audit detail or any database table (the keys table holds only its hash), and only the key name waits in the one-shot `flash` row; responses are `no-store`; a refresh cannot make a second key | `test_admin_creates_a_key_that_works_and_is_shown_once`, `test_refreshing_the_create_post_page_shows_no_token_and_makes_no_second_key` |
@@ -87,11 +87,16 @@ the database anyway).
 
 ## Known gaps (accepted for now)
 
-1. **Audit log is not tamper-proof against a writer of the database file:** migration 008
-   blocks UPDATE and DELETE through SQL, but the hash chain is unkeyed. Someone who can write
-   the file can drop the triggers, rewrite rows and recompute every later hash, or cut rows off
-   the tail, and `verify` will not notice (the page does notice missing triggers). Upgrade
-   path: HMAC with a key held outside the database, and an offsite copy of the latest hash.
+1. **Audit log: a rewrite is caught only if anchoring is on, and only back to the last anchor.**
+   Migration 008 blocks UPDATE and DELETE through SQL, but the hash chain is unkeyed. With
+   `THREATLENS_AUDIT_KEY_FILE` and `THREATLENS_AUDIT_ANCHOR` set and `threatlens audit anchor`
+   run on a schedule (hourly), the newest row hash is signed (HMAC-SHA256) into an append-only
+   file. `audit verify` and the audit page then fail on a forged line, a rewritten or cut row
+   that was anchored, a deleted newest line (anchor too old) or a wrong key. Limits: rows added
+   after the newest anchor rest on the unkeyed chain until the next one; someone holding the
+   database, the key and the anchor file together can still rewrite everything, so the anchor
+   file must be shipped off the machine and the key kept off it (tests cannot prove the
+   shipping). With anchoring off, the page says so.
 2. **Lockout as a weapon:** anyone can lock a known username for 15 minutes by failing five
    times. Chosen over letting an attacker guess freely.
 3. **IP key behind a proxy:** the lock uses the client address uvicorn reports. With

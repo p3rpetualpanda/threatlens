@@ -53,7 +53,7 @@ workflow. It does no detection of its own.
   (8 h idle expiry, 24 h hard limit), CSRF header on state-changing requests, login lock after 5 failures per
   15 min, security headers. `threatlens create-admin EMAIL` makes the first admin (no default
   password). A test checks every route against every kind of caller.
-- Audit log: hash-chained; `threatlens audit verify` exits 1 if a row was changed or removed.
+- Audit log: hash-chained and append-only through SQL; `threatlens audit verify` exits 1 if a row was changed or removed. Optional keyed anchors (below) catch a full rewrite.
   It catches accidental and naive edits, not someone who can rewrite the file. See [docs/threat-model.md](docs/threat-model.md).
 - First data model in place (see `app/migrations/001_initial.sql`);
   `assets` and `identities` are minimal until M4.
@@ -83,6 +83,16 @@ uv run threatlens import tests/fixtures/findings.jsonl
 uv run threatlens create-api-key lab_a
 uv run threatlens create-admin you@example.test
 uv run threatlens audit verify
+```
+
+Audit anchors (optional, catches a rewrite of the whole database file):
+
+```powershell
+uv run threatlens audit keygen C:\secure\audit.key   # once; keep it off this machine's backups
+$env:THREATLENS_AUDIT_KEY_FILE = "C:\secure\audit.key"
+$env:THREATLENS_AUDIT_ANCHOR = "C:\shipped\anchors.jsonl"
+uv run threatlens audit anchor    # run hourly from a scheduler; ship the file off the machine
+uv run threatlens audit verify    # also checks the anchors; --max-age 24 (hours)
 ```
 
 To use a different database path:

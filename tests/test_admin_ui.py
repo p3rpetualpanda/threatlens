@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 import app.admin_ui as admin_ui
 import app.main as main_mod
 from app import config
+from app.anchor import append_anchor, generate_key, load_key
 from app.apikeys import lookup_api_key
 from app.audit import record
 from app.db import connect, migrate
@@ -71,6 +72,20 @@ def test_audit_page_is_for_lead_and_admin(db: Path) -> None:
         page = login(name)[0].get("/audit")
         assert page.status_code == 200 and "user.create" in page.text
         assert "chain intact" in page.text
+
+
+def test_audit_page_shows_the_anchor_state(db: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    c, _ = login("lead")
+    assert "No anchor configured" in c.get("/audit").text
+    key, anchor = db.parent / "k", db.parent / "a.jsonl"
+    generate_key(key)
+    monkeypatch.setattr(config, "AUDIT_KEY_FILE", str(key))
+    monkeypatch.setattr(config, "AUDIT_ANCHOR", str(anchor))
+    assert "anchor check failed" in c.get("/audit").text  # configured, but no anchor file yet
+    admin_ui._anchored.clear()
+    with closing(connect(config.DB_PATH)) as conn:
+        append_anchor(conn, load_key(key), anchor, datetime.now(UTC))
+    assert "Anchors match" in c.get("/audit").text
 
 
 def test_audit_page_reports_a_broken_chain(db: Path) -> None:

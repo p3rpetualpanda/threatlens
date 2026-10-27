@@ -10,10 +10,11 @@ import sqlite3
 import sys
 from collections.abc import Sequence
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import config
+from .anchor import AnchorError, append_anchor, check_anchor, generate_key, load_key
 from .apikeys import create_api_key
 from .audit import record, verify
 from .contract import validate_findings
@@ -145,9 +146,19 @@ def _load_csv(kind: str, path: Path, db: Path) -> int:
     return 0
 
 
-def _audit_verify(db: Path) -> int:
+def _anchor_paths(args: argparse.Namespace) -> tuple[Path | None, Path | None]:
+    key = args.key_file or (Path(config.AUDIT_KEY_FILE) if config.AUDIT_KEY_FILE else None)
+    anchor = args.anchor_file or (Path(config.AUDIT_ANCHOR) if config.AUDIT_ANCHOR else None)
+    return key, anchor
+
+
+def _audit_verify(db: Path, args: argparse.Namespace) -> int:
     if not db.is_file():  # connect() would quietly create an empty database
         print(f"no database at {db}", file=sys.stderr)
+        return 1
+    key_file, anchor_file = _anchor_paths(args)
+    if (key_file is None) != (anchor_file is None):
+        print("set both the audit key file and the anchor file, or neither", file=sys.stderr)
         return 1
     try:
         with closing(connect(db)) as conn:
@@ -156,10 +167,63 @@ def _audit_verify(db: Path) -> int:
                 print(f"audit chain broken at row {bad}", file=sys.stderr)
                 return 1
             count = conn.execute("SELECT count(*) FROM audit_log").fetchone()[0]
+            note = "no anchor configured"
+            if key_file and anchor_file:
+                problem = check_anchor(
+                    conn,
+                    load_key(key_file),
+                    anchor_file,
+                    datetime.now(UTC),
+                    timedelta(hours=args.max_age),
+                )
+                if problem:
+                    print(f"audit anchor check failed: {problem}", file=sys.stderr)
+                    return 1
+                note = "anchored"
+    except AnchorError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     except sqlite3.Error as exc:
         print(f"database error: {exc}", file=sys.stderr)
         return 1
-    print(f"audit chain ok ({count} rows)")
+    print(f"audit chain ok ({count} rows); {note}")
+    return 0
+
+
+def _audit_anchor(db: Path, args: argparse.Namespace) -> int:
+    key_file, anchor_file = _anchor_paths(args)
+    if key_file is None or anchor_file is None:
+        print("anchoring needs the key file and the anchor file", file=sys.stderr)
+        return 1
+    if not db.is_file():
+        print(f"no database at {db}", file=sys.stderr)
+        return 1
+    try:
+        with closing(connect(db)) as conn:
+            if verify(conn) is not None:  # never sign a log that is already broken
+                print("audit chain is broken; not anchoring", file=sys.stderr)
+                return 1
+            line = append_anchor(conn, load_key(key_file), anchor_file, datetime.now(UTC))
+    except (AnchorError, OSError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    except sqlite3.Error as exc:
+        print(f"database error: {exc}", file=sys.stderr)
+        return 1
+    print(f"anchored row {line['id']}")
+    return 0
+
+
+def _audit_keygen(path: Path | None) -> int:
+    if path is None:
+        print("keygen needs a path for the new key file", file=sys.stderr)
+        return 1
+    try:
+        generate_key(path)
+    except AnchorError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
+    print(f"wrote {path}; keep it out of git and off this database's backups")
     return 0
 
 
@@ -179,7 +243,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     idents = commands.add_parser("load-identities", help="replace identities from a CSV")
     idents.add_argument("file", type=Path)
     audit = commands.add_parser("audit", help="audit log tools")
-    audit.add_argument("action", choices=["verify"])
+    audit.add_argument("action", choices=["verify", "anchor", "keygen"])
+    audit.add_argument("path", type=Path, nargs="?", help="keygen: where to write the key")
+    audit.add_argument("--key-file", type=Path, help="default: $THREATLENS_AUDIT_KEY_FILE")
+    audit.add_argument("--anchor-file", type=Path, help="default: $THREATLENS_AUDIT_ANCHOR")
+    audit.add_argument("--max-age", type=float, default=24.0, help="hours; verify only")
     for sub in (imp, key, admin, assets, idents, audit):
         sub.add_argument("--db", type=Path, default=None, help="default: $THREATLENS_DB_PATH")
     args = parser.parse_args(argv)
@@ -191,7 +259,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command in ("load-assets", "load-identities"):
         return _load_csv(args.command, args.file, db)
     if args.command == "audit":
-        return _audit_verify(db)
+        if args.action == "keygen":
+            return _audit_keygen(args.path)
+        if args.action == "anchor":
+            return _audit_anchor(db, args)
+        return _audit_verify(db, args)
     return _create_api_key(args.name, db)
 
 

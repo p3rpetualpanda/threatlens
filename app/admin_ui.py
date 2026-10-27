@@ -11,7 +11,8 @@ import sqlite3
 import time
 import unicodedata
 from contextlib import closing
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
@@ -20,6 +21,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from . import config, flash
+from .anchor import AnchorError, check_anchor, load_key
 from .apikeys import create_api_key, revoke_api_key
 from .audit import Checkpoint, append_only, verify_from
 from .auth import cookie_secure
@@ -36,6 +38,8 @@ _FULL_EVERY = 600  # seconds between whole-chain passes; views in between check 
 _checked: dict[
     str, tuple[Checkpoint | None, float]
 ] = {}  # per database: checkpoint, full-pass time
+_anchored: dict[tuple[str, str], tuple[str | None, float]] = {}  # per db and file: result, time
+_ANCHOR_MAX_AGE = timedelta(hours=24)
 _NEWKEY = "threatlens_newkey"  # carries a new token across the redirect, for 60 s
 
 
@@ -65,6 +69,27 @@ def _chain_status(conn: sqlite3.Connection) -> int | None:
     return broken
 
 
+def _anchor_status(conn: sqlite3.Connection) -> str | None:
+    """None when no anchor is configured, "ok", or a problem; re-checked every _FULL_EVERY s."""
+    if not (config.AUDIT_KEY_FILE and config.AUDIT_ANCHOR):
+        return None
+    cache_key, now = (str(config.DB_PATH), config.AUDIT_ANCHOR), time.monotonic()
+    result, at = _anchored.get(cache_key, (None, -_FULL_EVERY))
+    if now - at >= _FULL_EVERY:
+        try:
+            result = check_anchor(
+                conn,
+                load_key(Path(config.AUDIT_KEY_FILE)),
+                Path(config.AUDIT_ANCHOR),
+                datetime.now(UTC),
+                _ANCHOR_MAX_AGE,
+            )
+        except AnchorError as exc:
+            result = str(exc)
+        _anchored[cache_key] = (result, now)
+    return result or "ok"
+
+
 @router.get("/audit", response_class=HTMLResponse, include_in_schema=False)
 def audit_log(
     request: Request, before: Annotated[int | None, Query(ge=1, le=2**63 - 1)] = None
@@ -74,6 +99,7 @@ def audit_log(
         return session
     with closing(connect(config.DB_PATH)) as conn:
         broken = _chain_status(conn)
+        anchor = _anchor_status(conn)
         # login rows hold client IPs and emails typed by anyone: admins only
         hide = session.user.role != "admin"
         rows = conn.execute(
@@ -90,6 +116,7 @@ def audit_log(
         session,
         rows=rows,
         broken=broken,
+        anchor=anchor,
         next_before=rows[-1]["id"] if more else None,
     )
 

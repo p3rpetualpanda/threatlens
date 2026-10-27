@@ -4,6 +4,9 @@
 <h1>Audit log</h1>
 {% if broken is none %}<p role="status">Hash chain intact: no row has been edited or removed from the middle.</p>
 {% else %}<p class="error" role="alert">Error: hash chain broken at row {{ broken }}.</p>{% endif %}
+{% if anchor == "ok" %}<p role="status">Anchors match the log and the newest is under 24 hours old.</p>
+{% elif anchor %}<p class="error" role="alert">Error: audit anchor check failed: {{ anchor }}.</p>
+{% else %}<p class="muted">No anchor configured: a rewrite of the whole database file would go unnoticed.</p>{% endif %}
 {% if rows %}
 <div class="scroll" role="region" aria-label="Audit log" tabindex="0">
 <table>
