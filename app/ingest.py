@@ -2,7 +2,8 @@
 
 The caller validates first (app.contract). Ingest is all-or-nothing: one transaction, rolled
 back on any error. A known `finding_info.uid` is idempotent: only `beacon_status` and
-`last_ingested_at` change. Correlation into incidents is M3, so `incidents_touched` stays [].
+`last_ingested_at` change. Each environment that received a new alert is re-correlated into
+incidents in the same transaction; `incidents_touched` lists the incidents created or changed.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from datetime import UTC, datetime
 from typing import Any, TypedDict
 
 from .audit import record
+from .incidents import recorrelate
 
 _ENTITY_KINDS = {
     "hosts": "host",
@@ -43,12 +45,17 @@ def ingest_findings(
     conn.execute("BEGIN IMMEDIATE")
     try:
         envs: set[str] = set()
+        new_envs: set[str] = set()
         for finding in findings:
             created, env = _upsert(conn, finding, stamp)
             result["created" if created else "unchanged"] += 1
             envs.add(env)
+            if created:
+                new_envs.add(env)
         for env in sorted(envs):
             _touch_environment(conn, env, stamp)
+        for env in sorted(new_envs):
+            result["incidents_touched"] += recorrelate(conn, env, now)
         detail = {"created": result["created"], "unchanged": result["unchanged"]}
         record(conn, actor, "findings.ingest", None, detail, now)
         conn.commit()

@@ -39,7 +39,7 @@ def _count(conn: sqlite3.Connection, table: str) -> int:
 def test_creates_alerts_and_entities(conn: sqlite3.Connection) -> None:
     items = _fixture()
     result = ingest_findings(conn, items, NOW)
-    assert result == {"created": 4, "unchanged": 0, "incidents_touched": []}
+    assert (result["created"], result["unchanged"]) == (4, 0)
     assert _count(conn, "alerts") == 4
     assert _count(conn, "alert_entities") == 9  # 3 + 4 + 2 + 0
     assert _count(conn, "environments") == 2
@@ -98,7 +98,7 @@ def test_resend_updates_only_beacon_status(conn: sqlite3.Connection) -> None:
 def test_duplicate_uid_in_one_request(conn: sqlite3.Connection) -> None:
     first = _fixture()[0]
     result = ingest_findings(conn, [first, copy.deepcopy(first)], NOW)
-    assert result == {"created": 1, "unchanged": 1, "incidents_touched": []}
+    assert (result["created"], result["unchanged"], len(result["incidents_touched"])) == (1, 1, 1)
     assert _count(conn, "alerts") == 1
     assert _count(conn, "alert_entities") == 3
 
@@ -217,3 +217,33 @@ def test_entity_kinds_match_their_source_lists(conn: sqlite3.Connection) -> None
             assert {v for (r, k, v) in got if r == rule and k == kind} == set(ents[key])
     assert any(k == "src_ip" for _, k, _ in got)
     assert any(k == "dst_ip" for _, k, _ in got)
+
+
+def test_ingest_creates_incidents_and_reports_touched(conn: sqlite3.Connection) -> None:
+    result = ingest_findings(conn, _fixture(), NOW)
+    ids = {r["id"] for r in conn.execute("SELECT id FROM incidents")}
+    # lab_a: two alerts share host scranton; lab_b: two alerts with nothing in common
+    assert len(ids) == 3
+    assert set(result["incidents_touched"]) == ids
+    assert _count(conn, "incident_alerts") == 4
+
+
+def test_reingest_same_batch_touches_nothing(conn: sqlite3.Connection) -> None:
+    ingest_findings(conn, _fixture(), NOW)
+    before = [tuple(r) for r in conn.execute("SELECT * FROM incidents ORDER BY id")]
+    result = ingest_findings(conn, _fixture(), LATER)
+    assert result["incidents_touched"] == []
+    assert before == [tuple(r) for r in conn.execute("SELECT * FROM incidents ORDER BY id")]
+
+
+def test_rollback_leaves_no_incident_rows(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(ingest, "record", boom)  # runs after recorrelate
+    with pytest.raises(RuntimeError, match="boom"):
+        ingest_findings(conn, _fixture(), NOW)
+    assert _count(conn, "incidents") == 0
+    assert _count(conn, "incident_alerts") == 0

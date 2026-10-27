@@ -49,7 +49,8 @@ def test_happy_path_creates_alerts(api: tuple[TestClient, Path, str]) -> None:
     client, db, token = api
     resp = client.post(URL, json=_fixture(), headers=_auth(token))
     assert resp.status_code == 200
-    assert resp.json() == {"created": 4, "unchanged": 0, "incidents_touched": []}
+    body = resp.json()
+    assert (body["created"], body["unchanged"], len(body["incidents_touched"])) == (4, 0, 3)
     assert _alerts(db) == 4
 
 
