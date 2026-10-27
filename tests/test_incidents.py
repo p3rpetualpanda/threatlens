@@ -350,3 +350,22 @@ def test_risk_score_follows_membership(conn: sqlite3.Connection) -> None:
     factors = json.loads(row["risk_factors"])
     assert row["risk_score"] == 35 + 8 + 10
     assert sum(f["points"] for f in factors) == row["risk_score"]
+
+
+def test_risk_config_is_read_once_per_run(
+    conn: sqlite3.Connection, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Re-parsing the YAML per incident made a 5,000-incident import hold the write lock ~15 s.
+    from app.risk import RiskConfig, load_risk_config
+
+    calls: list[int] = []
+
+    def counted() -> RiskConfig:
+        calls.append(1)
+        return load_risk_config()
+
+    monkeypatch.setattr("app.incidents.load_risk_config", counted)
+    for n in range(3):
+        add(conn, f"a{n}", n * 100_000, host=f"h{n}")
+    assert len(run(conn)) == 3
+    assert len(calls) == 1

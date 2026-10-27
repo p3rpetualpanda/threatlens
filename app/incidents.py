@@ -119,6 +119,7 @@ def recorrelate(conn: sqlite3.Connection, environment: str, now: datetime) -> li
     owner = {iid: k for iid, (_, k) in best.items()}
 
     changed: list[str] = []
+    risk_cfg = load_risk_config()
     for k, g in enumerate(groups):
         mine = sorted(
             (i for i, o in owner.items() if o == k),
@@ -132,7 +133,7 @@ def recorrelate(conn: sqlite3.Connection, environment: str, now: datetime) -> li
             changed.append(winner)
         for loser in losers:
             _merge(conn, loser, winner, stamp, now)
-        did_change = _sync(conn, winner, g, titles, spans, pinned, stamp) or bool(losers)
+        did_change = _sync(conn, winner, g, titles, spans, pinned, stamp, risk_cfg) or bool(losers)
         if did_change and winner not in changed:
             changed.append(winner)
     return changed
@@ -224,6 +225,7 @@ def _sync(
     spans: Spans,
     pinned: set[str],
     stamp: str,
+    risk_cfg: RiskConfig,
 ) -> bool:
     """Bring one incident's rows in line with its group; return whether anything changed."""
     row = conn.execute("SELECT * FROM incidents WHERE id = ?", [iid]).fetchone()
@@ -252,7 +254,7 @@ def _sync(
                 "UPDATE incident_alerts SET why = ? WHERE incident_id = ? AND alert_id = ?",
                 [g.why[a], iid, a],
             )
-    risk, factors = _risk(conn, iid, row["environment"], load_risk_config())
+    risk, factors = _risk(conn, iid, row["environment"], risk_cfg)
     n = len(desired)
     first_alert = min(desired, key=lambda a: (spans[a][0], a))
     title = titles[first_alert] + (f" (+{n - 1} more)" if n > 1 else "")
