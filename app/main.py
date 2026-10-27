@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from starlette.types import Scope
 
 from . import config
+from .account_ui import router as account_ui_router
 from .admin_ui import router as admin_ui_router
 from .api import router as ingest_router
 from .auth import router as auth_router
@@ -93,6 +94,7 @@ app.include_router(workflow_router)
 app.include_router(ui_router)
 app.include_router(ui_actions_router)
 app.include_router(admin_ui_router)
+app.include_router(account_ui_router)
 
 
 @app.get("/health")

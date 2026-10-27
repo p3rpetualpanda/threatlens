@@ -12,7 +12,9 @@ from collections.abc import Callable
 from datetime import datetime
 
 from .audit import record
-from .users import ROLES, User, hash_password
+from .lockout import forgive, reserve
+from .sessions import end_other_sessions
+from .users import ROLES, User, authenticate, hash_password
 
 
 class AccountError(Exception):
@@ -95,6 +97,32 @@ def operator_set_password(
         conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", [new_hash, row["id"]])
         conn.execute("DELETE FROM sessions WHERE user_id = ?", [row["id"]])
         record(conn, "cli", "user.password_set", row["id"], {"email": row["email"]}, now)
+
+    _write(conn, run)
+
+
+def change_own_password(
+    conn: sqlite3.Connection, user: User, current: str, new: str, keep_token: str, now: datetime
+) -> None:
+    """The signed-in user changes their own password. Wrong guesses of the current password
+    count against the same 15-minute limit as logins, so a stolen session cannot be used to
+    guess it. Every other session of the user ends; the one in `keep_token` stays."""
+    keys = [f"pw:{user.id}"]
+    attempt = reserve(conn, keys, now)
+    if attempt is None:
+        raise AccountError(429, "too many wrong passwords, try again later")
+    if authenticate(conn, user.email, current) is None:
+        raise AccountError(403, "the current password is wrong")
+    try:
+        new_hash = hash_password(new)
+    except ValueError as exc:
+        raise AccountError(422, str(exc)) from exc
+
+    def run() -> None:
+        forgive(conn, keys[0], attempt)
+        conn.execute("UPDATE users SET password_hash = ? WHERE id = ?", [new_hash, user.id])
+        end_other_sessions(conn, user.id, keep_token)
+        record(conn, user.email, "user.password_changed", user.id, {}, now)
 
     _write(conn, run)
 

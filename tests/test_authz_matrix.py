@@ -84,6 +84,8 @@ _FORM = {**dict.fromkeys(ROLES, 403), "anonymous": 303, "ingest_key": 303}
 for _a in ("take", "assign", "status", "disposition", "step", "comment", "merge", "split"):
     MATRIX[("POST", f"/incidents/{{incident_id}}/{_a}")] = (_FORM, {})
 MATRIX[("POST", "/logout")] = (_FORM, {})
+MATRIX[("POST", "/account/password")] = (_FORM, {})
+MATRIX[("GET", "/account")] = (_PAGE, {})
 _AUDIT_ROLES = {"viewer": 403, "analyst": 403, "lead": 200, "admin": 200}
 MATRIX[("GET", "/audit")] = ({**_AUDIT_ROLES, "anonymous": 303, "ingest_key": 303}, {})
 _KEYS = {"viewer": 403, "analyst": 403, "lead": 403, "admin": 200}

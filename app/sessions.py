@@ -56,6 +56,13 @@ def create_session(
     return token, csrf
 
 
+def end_other_sessions(conn: sqlite3.Connection, user_id: str, keep_token: str) -> None:
+    """Delete every session of the user except the one behind `keep_token`. No commit."""
+    conn.execute(
+        "DELETE FROM sessions WHERE user_id = ? AND token_hash != ?", [user_id, _hash(keep_token)]
+    )
+
+
 def get_session(conn: sqlite3.Connection, token: str, now: datetime) -> Session | None:
     """Return the live session for the token and extend it, or None."""
     row = conn.execute(

@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}{% if error %}Error - {% endif %}Account - ThreatLens{% endblock %}
+{% block body %}
+<h1>Account</h1>
+{% if error %}<p class="error" role="alert">Error: {{ error }}</p>{% endif %}
+{% if done %}<p role="status">Done: {{ done }}. Your other sessions were signed out.</p>{% endif %}
+<h2>Change password</h2>
+<form method="post" action="/account/password" aria-label="Change password"><input type="hidden" name="csrf" value="{{ csrf }}">
+<label>Current password <input name="current" type="password" maxlength="1024" autocomplete="current-password" required></label>
+<label>New password (12 or more characters) <input name="new" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+<label>New password again <input name="again" type="password" minlength="12" maxlength="1024" autocomplete="new-password" required></label>
+<button type="submit">Change password</button></form>
+{% endblock %}

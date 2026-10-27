@@ -43,6 +43,9 @@ workflow. It does no detection of its own.
   split for leads) and sign out. Buttons show only what the role and incident state allow; the
   service still enforces. Forms carry a hidden CSRF field and an Origin check. Jinja2 autoescape,
   no inline script or style, no JavaScript.
+- Account: `/account` (your email in the header) lets any signed-in user change their own
+  password. It needs the current one (wrong guesses share the 15-minute lock-out), ends their
+  other sessions, and is audited without the password.
 - Playbooks: each incident page shows a response checklist (containment, eradication, recovery,
   lessons learned) picked from the incident's ATT&CK techniques by the YAML files in
   `config/playbooks/` (exact technique, parent, tactic, then a default). Ticking a step is audited.
