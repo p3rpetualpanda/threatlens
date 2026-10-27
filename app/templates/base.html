@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}ThreatLens{% endblock %}</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header><a href="/">ThreatLens</a>{% if user %}<span class="muted">{{ user.email }} ({{ user.role }})</span>{% endif %}</header>
+<main>
+{% block body %}{% endblock %}
+</main>
+</body>
+</html>

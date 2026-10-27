@@ -13,11 +13,12 @@ from .api import router as ingest_router
 from .auth import router as auth_router
 from .db import connect, migrate
 from .incidents_api import router as incidents_router
+from .ui import router as ui_router
 from .workflow_api import router as workflow_router
 
 _CSP = "default-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
 _NO_CSP_PATHS = {"/docs", "/redoc"}  # Swagger UI and ReDoc load scripts from a CDN
-_LOGIN_PATH = "/api/v1/login"
+_LOGIN_PATHS = {"/api/v1/login", "/login"}
 _MAX_LOGIN_BYTES = 4096
 _log = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ async def security_headers(
     # shortcut: trusts Content-Length, so a chunked body skips this cap; put a body limit on the
     # reverse proxy before exposing the login route.
     declared = request.headers.get("content-length", "")
-    if request.url.path == _LOGIN_PATH and declared.isdigit() and int(declared) > _MAX_LOGIN_BYTES:
+    if request.url.path in _LOGIN_PATHS and declared.isdigit() and int(declared) > _MAX_LOGIN_BYTES:
         response: Response = JSONResponse({"detail": "request body too large"}, status_code=413)
     else:
         response = await call_next(request)
@@ -72,6 +73,7 @@ app.include_router(ingest_router)
 app.include_router(auth_router)
 app.include_router(incidents_router)
 app.include_router(workflow_router)
+app.include_router(ui_router)
 
 
 @app.get("/health")

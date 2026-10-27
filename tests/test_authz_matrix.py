@@ -73,6 +73,14 @@ MATRIX |= {
     ("POST", f"{_INC}/merge"): _acting("lead", {"into": "other"}),
     ("POST", f"{_INC}/split"): _acting("lead", {"alerts": ["a"]}),
 }
+_PAGE = {**dict.fromkeys(ROLES, 200), "anonymous": 303, "ingest_key": 303}  # 303 goes to /login
+MATRIX |= {
+    ("GET", "/login"): (_all(200), {}),
+    ("POST", "/login"): (_all(401), {"content": "email=&password="}),
+    ("GET", "/static/app.css"): (_all(200), {}),
+    ("GET", "/"): (_PAGE, {}),
+    ("GET", "/incidents/{incident_id}"): ({**_PAGE, **dict.fromkeys(ROLES, 404)}, {}),
+}
 CASES = [(key, who) for key in MATRIX for who in PRINCIPALS]
 
 
@@ -88,7 +96,7 @@ def setup(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> str:
 
 
 def _call(who: str, method: str, path: str, kwargs: dict[str, Any], key: str, csrf: bool = True):  # type: ignore[no-untyped-def]
-    client = TestClient(main_mod.app, base_url="http://localhost")
+    client = TestClient(main_mod.app, base_url="http://localhost", follow_redirects=False)
     headers: dict[str, str] = {}
     if who in ROLES:
         resp = client.post("/api/v1/login", json={"email": f"{who}@example.test", "password": PW})

@@ -95,8 +95,8 @@ the database anyway).
 5. **No user-management routes or account disable yet.** Users come from the CLI only; admin
    routes arrive with the M5 UI. Until then nothing (API or CLI) can revoke a session, disable
    an account or reset a password except editing the SQLite file.
-6. **Stored XSS tests:** no page renders finding fields yet. The "hostile finding renders
-   escaped on every page" test is added with the UI in M5.
+6. **Stored XSS:** `tests/test_ui.py` renders a hostile title, rule, host, user, comment and
+   author on the queue and detail pages and asserts they are escaped. Alert detail (M5c) adds its own.
 7. **`/docs` and `/redoc` have no CSP** because Swagger UI loads scripts from a CDN. Turn
    them off in production.
 8. **Login body cap trusts `Content-Length`;** a chunked body skips it. Put a body limit on the
@@ -112,3 +112,6 @@ the database anyway).
     is audited with the actor.
 13. **Split-off and merged incidents** get title, times and score recomputed, but `too_common`
     and `related_incident` keep their old values until the next correlation run.
+14. **Form login has no CSRF token.** Like the JSON login it relies on `SameSite=Strict` and
+    sets only a fresh session, so a forged login would sign the victim into the attacker's account
+    only if the attacker has valid credentials.
