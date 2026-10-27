@@ -7,8 +7,9 @@
 <link rel="stylesheet" href="/static/app.css">
 </head>
 <body>
+<a class="skip" href="#main">Skip to content</a>
 <header><a href="/">ThreatLens</a>{% if user %}<span class="muted">{{ user.email }} ({{ user.role }})</span>{% endif %}</header>
-<main>
+<main id="main">
 {% block body %}{% endblock %}
 </main>
 </body>

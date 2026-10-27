@@ -112,6 +112,6 @@ the database anyway).
     is audited with the actor.
 13. **Split-off and merged incidents** get title, times and score recomputed, but `too_common`
     and `related_incident` keep their old values until the next correlation run.
-14. **Form login has no CSRF token.** Like the JSON login it relies on `SameSite=Strict` and
-    sets only a fresh session, so a forged login would sign the victim into the attacker's account
-    only if the attacker has valid credentials.
+14. **Form login has no CSRF token.** It refuses a request whose `Origin` header names another
+    host (browsers always send it on a cross-site POST) and sets only a fresh session. A client
+    that sends no `Origin` is not a browser attack.

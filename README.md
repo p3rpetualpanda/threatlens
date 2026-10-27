@@ -35,7 +35,7 @@ workflow. It does no detection of its own.
 - Analyst actions (M5a, JSON only): `POST /api/v1/incidents/{id}/` `take`, `status`, `disposition`,
   `comments` (analyst+; an analyst works only incidents they own) and `assign`, `merge`, `split`
   (lead+). Resolving needs a disposition and copies it to alerts without one; reopening is for
-  leads. Each action marks the incident touched and writes an audit row. No HTML yet (M5b).
+  leads. Each action marks the incident touched and writes an audit row. No action buttons yet (M5c).
 - Analyst pages (M5b, read-only): `/login`, `/` (queue by risk; filters status, environment,
   owner) and `/incidents/{id}` (risk factors, ATT&CK links, entities with asset, identity and IP
   context, grouping reasons, timeline, comments). Jinja2 autoescape, no inline script or style.

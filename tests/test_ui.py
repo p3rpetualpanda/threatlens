@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from contextlib import closing
 from pathlib import Path
 
+import httpx
 import pytest
 from fastapi.testclient import TestClient
 from incident_helpers import NOW, add, run
@@ -133,3 +134,95 @@ def test_css_is_served_and_pages_have_no_inline_script(iid: str) -> None:
     assert "<script" not in c.get("/").text
     assert " style=" not in c.get(f"/incidents/{iid}").text
     assert json.loads(c.get("/api/v1/me").text)["user"]["role"] == "viewer"
+
+
+FORM = {"content-type": "application/x-www-form-urlencoded"}
+
+
+def _post(c: TestClient, body: str, **extra: str) -> httpx.Response:
+    r: httpx.Response = c.post("/login", content=body, headers={**FORM, **extra})
+    return r
+
+
+def test_form_login_refuses_a_cross_site_origin(iid: str) -> None:
+    c = TestClient(main_mod.app, base_url="http://localhost", follow_redirects=False)
+    body = f"email=viewer@example.test&password={PW}"
+    bad = _post(c, body, origin="https://evil.example")
+    assert bad.status_code == 403 and "tl_session" not in bad.cookies
+    assert _post(c, body, origin="http://localhost").status_code == 303
+
+
+def test_form_login_throttle_sends_retry_after(iid: str) -> None:
+    c = TestClient(main_mod.app, base_url="http://localhost", follow_redirects=False)
+    for _ in range(8):
+        r = _post(c, "email=viewer@example.test&password=nope")
+    assert r.status_code == 429 and "retry-after" in r.headers
+
+
+def test_form_login_caps_a_body_without_content_length(iid: str) -> None:
+    c = TestClient(main_mod.app, base_url="http://localhost", follow_redirects=False)
+
+    def chunks() -> Iterator[bytes]:
+        for _ in range(10):
+            yield b"x" * 1000
+
+    r = c.post("/login", content=chunks(), headers=FORM)  # chunked: no Content-Length
+    assert r.status_code == 413
+
+
+def test_any_status_filter_and_html_404_and_merged_redirect(iid: str) -> None:
+    c = login()
+    assert c.get("/?status=&environment=&owner=").status_code == 200
+    gone = c.get("/incidents/nope")
+    assert gone.status_code == 404 and "text/html" in gone.headers["content-type"]
+    with closing(connect(config.DB_PATH)) as conn:
+        conn.execute(
+            "INSERT INTO incidents (id, environment, title, merged_into, created_at, updated_at) "
+            "VALUES ('old', 'e', 't', ?, ?, ?)",
+            [iid, NOW.isoformat(), NOW.isoformat()],
+        )
+        conn.commit()
+    r = c.get("/incidents/old")
+    assert (r.status_code, r.headers["location"]) == (303, f"/incidents/{iid}")
+
+
+def _mk(conn: object, iid: str, score: int | None, seen: str, env: str = "e") -> None:
+    conn.execute(  # type: ignore[attr-defined]
+        "INSERT INTO incidents (id, environment, title, risk_score, last_seen, created_at, "
+        "updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [iid, env, iid, score, seen, NOW.isoformat(), NOW.isoformat()],
+    )
+
+
+def test_queue_sort_filters_limit_and_merged(iid: str) -> None:
+    with closing(connect(config.DB_PATH)) as conn:
+        conn.execute("UPDATE incidents SET risk_score = 40, last_seen = '2026-01-01'")
+        _mk(conn, "hi", 90, "2026-01-01")
+        _mk(conn, "none", None, "2026-03-01")
+        _mk(conn, "tie-new", 40, "2026-02-01", env="other")
+        _mk(conn, "gone", 99, "2026-01-01")
+        conn.execute("UPDATE incidents SET merged_into = ? WHERE id = 'gone'", [iid])
+        conn.execute("UPDATE incidents SET status = 'resolved' WHERE id = 'hi'")
+        owner = conn.execute("SELECT id FROM users WHERE role = 'analyst'").fetchone()[0]
+        conn.execute("UPDATE incidents SET owner = ? WHERE id = 'tie-new'", [owner])
+        conn.commit()
+    c = login()
+
+    def order(q: str) -> list[str]:
+        text = c.get(q).text
+        return [x.split('"')[0] for x in text.split('href="/incidents/')[1:]]
+
+    assert order("/") == ["hi", "tie-new", iid, "none"]  # score desc, then last_seen, NULL last
+    assert order("/?limit=1") == ["hi"]
+    assert order("/?status=resolved") == ["hi"]
+    assert order("/?environment=other") == ["tie-new"]
+    assert order(f"/?owner={XSS}@EXAMPLE.test".replace("<", "%3C")) == ["tie-new"]
+    assert order("/?owner=nobody@example.test") == []
+    assert "gone" not in order("/")
+
+
+def test_filter_echo_and_header_email_are_escaped(iid: str) -> None:
+    c = login(f"{XSS}@example.test")
+    page = c.get('/?environment="><script>alert(1)</script>').text
+    assert '"><script>' not in page and "&#34;&gt;&lt;script&gt;" in page
+    assert ESCAPED in page  # the signed-in email in the header

@@ -9,13 +9,14 @@ from __future__ import annotations
 from contextlib import closing
 from pathlib import Path
 from typing import Annotated, Any, Literal
-from urllib.parse import parse_qs
+from urllib.parse import parse_qs, quote, urlsplit
 
 from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi import Path as PathParam
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
-from pydantic import ValidationError
+from pydantic import BeforeValidator, ValidationError
+from starlette.concurrency import run_in_threadpool
 
 from . import config
 from .auth import LoginBody, login, require_role
@@ -27,6 +28,7 @@ from .sessions import Session
 
 _HERE = Path(__file__).resolve().parent
 _templates = Jinja2Templates(directory=str(_HERE / "templates"))
+_MAX_FORM = 4096
 router = APIRouter()
 
 
@@ -56,13 +58,26 @@ def login_form(request: Request) -> Response:
 
 @router.post("/login", include_in_schema=False)
 async def login_submit(request: Request) -> Response:
-    form = parse_qs((await request.body()).decode("utf-8", "replace"))
+    origin = request.headers.get("origin")
+    if origin and urlsplit(origin).netloc != request.headers.get("host"):
+        # a cross-site form post could otherwise sign the victim into the attacker's account
+        return _page(request, "login.html", None, 403, error="cross-site login refused")
+    raw = bytearray()
+    async for (
+        chunk
+    ) in request.stream():  # the middleware cap trusts Content-Length; chunked skips it
+        raw += chunk
+        if len(raw) > _MAX_FORM:
+            return _page(request, "login.html", None, 413, error="request too large")
+    form = parse_qs(raw.decode("utf-8", "replace"))
     try:
         body = LoginBody(email=form.get("email", [""])[0], password=form.get("password", [""])[0])
-        result = login(body, request)
+        result = await run_in_threadpool(login, body, request)  # argon2 must not block the loop
     except (ValidationError, HTTPException) as exc:
         if isinstance(exc, HTTPException):
-            return _page(request, "login.html", None, exc.status_code, error=exc.detail)
+            page = _page(request, "login.html", None, exc.status_code, error=exc.detail)
+            page.headers.update(exc.headers or {})
+            return page
         return _page(request, "login.html", None, 401, error="invalid email or password")
     out = RedirectResponse("/", status_code=303)
     out.headers["set-cookie"] = result.headers["set-cookie"]
@@ -72,7 +87,9 @@ async def login_submit(request: Request) -> Response:
 @router.get("/", response_class=HTMLResponse, include_in_schema=False)
 def queue(
     request: Request,
-    status: Literal["new", "in_progress", "resolved"] | None = None,
+    status: Annotated[
+        Literal["new", "in_progress", "resolved"] | None, BeforeValidator(lambda v: v or None)
+    ] = None,  # the form's "any" option sends status=
     environment: Annotated[str | None, Query(max_length=200)] = None,
     owner: Annotated[str | None, Query(max_length=254)] = None,
     limit: Annotated[int, Query(ge=1, le=200)] = 50,
@@ -138,7 +155,12 @@ def incident(request: Request, incident_id: Annotated[str, PathParam(max_length=
     session = _viewer(request)
     if session is None:
         return RedirectResponse("/login", status_code=303)
-    inc = get_incident(incident_id)
+    try:
+        inc = get_incident(incident_id)
+    except HTTPException as exc:
+        return _page(request, "error.html", session, exc.status_code, message=exc.detail)
+    if inc["merged_into"]:  # the queue hides merged incidents; follow the merge
+        return RedirectResponse(f"/incidents/{quote(inc['merged_into'])}", status_code=303)
     with closing(connect(config.DB_PATH)) as conn:
         timeline = conn.execute(
             "SELECT a.time, a.rule, a.severity, a.technique, ia.pinned FROM incident_alerts ia "

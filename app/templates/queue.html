@@ -2,7 +2,7 @@
 {% block title %}Incidents - ThreatLens{% endblock %}
 {% block body %}
 <h1>Incidents</h1>
-<form method="get" action="/">
+<form method="get" action="/" role="search" aria-label="Filter incidents">
 <label>Status
 <select name="status">
 <option value="">any</option>
@@ -13,13 +13,14 @@
 <button type="submit">Filter</button>
 </form>
 {% if rows %}
+<div class="scroll" role="region" aria-label="Incidents" tabindex="0">
 <table>
 <caption class="muted">{{ rows|length }} shown, highest risk first</caption>
-<thead><tr><th>Risk</th><th>Title</th><th>Status</th><th>Owner</th><th>Alerts</th><th>Last seen</th></tr></thead>
+<thead><tr><th scope="col">Risk</th><th scope="col">Title</th><th scope="col">Status</th><th scope="col">Owner</th><th scope="col">Alerts</th><th scope="col">Last seen</th></tr></thead>
 <tbody>
 {% for r in rows %}
 <tr>
-<td>{% if r.risk_score is none %}-{% else %}{{ r.risk_score }} <span class="badge">{{ r.label }}</span>{% endif %}</td>
+<td>{% if r.risk_score is none %}not scored{% else %}{{ r.risk_score }} <span class="badge">{{ r.label }}</span>{% endif %}</td>
 <td><a href="/incidents/{{ r.id|urlencode }}">{{ r.title }}</a><br><span class="muted">{{ r.environment }}</span></td>
 <td>{{ r.status }}</td>
 <td>{{ r.owner_email or "unassigned" }}</td>
@@ -29,5 +30,6 @@
 {% endfor %}
 </tbody>
 </table>
+</div>
 {% else %}<p>No incidents match.</p>{% endif %}
 {% endblock %}

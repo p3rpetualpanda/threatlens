@@ -1,8 +1,12 @@
 :root { color-scheme: light; --fg: #1b1f23; --bg: #fff; --muted: #57606a; --line: #d0d7de; --accent: #0550ae; }
 body { font: 16px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg); margin: 0; }
 header, main { max-width: 64rem; margin: 0 auto; padding: 0.75rem 1rem; }
-header { display: flex; gap: 1rem; border-bottom: 1px solid var(--line); }
+header { display: flex; flex-wrap: wrap; overflow-wrap: anywhere; gap: 1rem; border-bottom: 1px solid var(--line); }
 a { color: var(--accent); }
+h1, a, td { overflow-wrap: anywhere; }
+.scroll { overflow-x: auto; }
+.skip { position: absolute; left: -999px; }
+.skip:focus { left: 0; background: var(--bg); padding: 0.5rem; }
 table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 .badge { border: 1px solid var(--fg); border-radius: 0.25rem; padding: 0 0.35rem; font-size: 0.85rem; }

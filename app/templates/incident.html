@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Incident - ThreatLens{% endblock %}
+{% block title %}{{ inc.title }} - ThreatLens{% endblock %}
 {% block body %}
 <p><a href="/">&larr; All incidents</a></p>
 <h1>{{ inc.title }}</h1>
@@ -27,19 +27,22 @@ Environment {{ inc.environment }}
 {% else %}<p class="muted">None.</p>{% endif %}
 
 <h2>Entities</h2>
+<div class="scroll" role="region" aria-label="Entities" tabindex="0">
 <table>
-<thead><tr><th>Kind</th><th>Value</th><th>Context</th></tr></thead>
+<caption class="muted">Entities in this incident</caption>
+<thead><tr><th scope="col">Kind</th><th scope="col">Value</th><th scope="col">Context</th></tr></thead>
 <tbody>
 {% for e in entities %}<tr><td>{{ e.kind }}</td><td>{{ e.value }}</td><td>{{ e.context }}</td></tr>{% endfor %}
 </tbody>
 </table>
+</div>
 
 <h2>Why these alerts are grouped</h2>
 <ul>{% for a in inc.alerts %}<li><strong>{{ a.rule }}</strong> x{{ a.count }} ({{ a.severity }}): {{ a.why }}</li>{% endfor %}</ul>
 
 <h2>Timeline</h2>
 <ol class="timeline">
-{% for a in timeline %}<li><time>{{ a.time }}</time> {{ a.rule }} <span class="badge">{{ a.severity }}</span>{% if a.technique %} {{ a.technique }}{% endif %}{% if a.pinned %} (pinned){% endif %}</li>{% endfor %}
+{% for a in timeline %}<li><time datetime="{{ a.time }}">{{ a.time }}</time> {{ a.rule }} <span class="badge">{{ a.severity }}</span>{% if a.technique %} {{ a.technique }}{% endif %}{% if a.pinned %} (pinned){% endif %}</li>{% endfor %}
 </ol>
 
 <h2>Comments</h2>
