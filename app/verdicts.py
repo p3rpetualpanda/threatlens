@@ -33,7 +33,7 @@ def build_rows(conn: sqlite3.Connection) -> list[tuple[str, str, str]]:
         if r["disposition"] == "benign_true_positive":
             reason = f"benign: {reason}"
         uid = r["finding_info_uid"]
-        if uid[0] in _FORMULA_STARTS:  # a spreadsheet would run it as a formula
+        if uid.startswith(_FORMULA_STARTS):  # a spreadsheet would run it as a formula
             uid = "'" + uid
         rows.append((uid, _STATUS[r["disposition"]], reason))
     return rows

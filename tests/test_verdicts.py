@@ -142,6 +142,13 @@ def test_formula_looking_alert_ids_are_defused(conn: sqlite3.Connection) -> None
     assert build_rows(conn)[0][0] == "'=HYPERLINK(1)"
 
 
+def test_empty_alert_id_does_not_crash_the_export(conn: sqlite3.Connection) -> None:
+    add(conn, "x", 0, host="h1")
+    _set(conn, "x", "false_positive")
+    conn.execute("UPDATE alerts SET finding_info_uid = '' WHERE id = 'x'")
+    assert build_rows(conn)[0][0] == ""
+
+
 def test_reason_names_the_surviving_incident_after_a_merge(conn: sqlite3.Connection) -> None:
     add(conn, "a", 0, host="h1")
     ids = run(conn)
