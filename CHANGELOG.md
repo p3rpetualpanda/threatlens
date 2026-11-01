@@ -1,6 +1,10 @@
 # Changelog
 
-## 1.0.0 - unreleased
+## 1.0.1 - 2026-11-01
+
+- Accessibility: checkboxes and links are at least 24 px (WCAG 2.5.8), with a test; CSS lint fixes.
+
+## 1.0.0 - 2026-11-01
 
 - M0 foundation: FastAPI app, `/health`, numbered SQLite migrations, 13-table data model.
 - M1 ingest: `POST /api/v1/findings`, `threatlens import`, API keys, beacon contract v1.
