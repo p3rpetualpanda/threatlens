@@ -13,7 +13,7 @@ The full feature list, moved out of the README.
   ranges are within 2 h; incidents are the connected groups, with a plain-English reason per
   alert. Settings: `config/correlation.yml`. Analyst-touched incidents never split, resolved ones
   are frozen, ids are stable. Read-only `GET /api/v1/incidents` and `/{id}` for any logged-in
-  role. Measured on beacon's 544-finding export: see [docs/correlation.md](correlation.md).
+  role. Measured on beacon's 554-finding export: see [docs/correlation.md](correlation.md).
 - Risk score (M4): every incident gets a 0-100 score from its highest alert severity, its
   distinct ATT&CK tactics, Credential Access / Lateral Movement, the most critical asset, a
   privileged identity and a public source IP in an authentication alert. The detail endpoint

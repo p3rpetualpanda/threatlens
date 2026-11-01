@@ -18,17 +18,17 @@ disposition and status where it has none; incident ids never change.
 
 ## Measurement
 
-`scripts/measure_correlation.py DB` on beacon's full export (544 findings, 11 environments):
+`scripts/measure_correlation.py DB` on beacon's full export (554 findings, 12 environments):
 
 | Setting | Incidents | Largest | Single-alert |
 |---|---|---|---|
-| 2 h window, 20% auto-stoplist (shipped) | 478 | 7 | 435 |
-| 6 h, 20% | 400 | 8 | 322 |
+| 2 h window, 20% auto-stoplist (shipped) | 478 | 11 | 434 |
+| 6 h, 20% (544-finding export) | 400 | 8 | 322 |
 | 12 h, 20% | 305 | 39 | 224 |
 | 24 h, 20% | 216 | 65 | 147 |
 
-Acceptance (no incident above 50 alerts) holds at the shipped settings: the largest has 7.
-515 of the 544 alerts are R20 SSH brute-force attempts from 173 source IPs against one host
+Acceptance (no incident above 50 alerts) holds at the shipped settings: the largest has 11.
+515 of the 554 alerts are R20 SSH brute-force attempts from 173 source IPs against one host
 over four weeks, so most sources appear once or a few times far apart, and that one host is
 stopped by the automatic stoplist. The low reduction there (515 to 466) reflects the data, not a
 bug. Wider windows group repeat sources but create larger incidents with no ground truth to say

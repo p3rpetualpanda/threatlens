@@ -14,9 +14,9 @@ workflow. It does no detection of its own.
 docker compose up
 ```
 
-It loads 544 findings from beacon's demo export, correlates them and prints a one-off admin
+It loads 554 findings from beacon's demo export, correlates them and prints a one-off admin
 login in the log. Open `http://127.0.0.1:8000/login`. Data lives in a Docker volume, so a restart
-keeps it; `docker compose down -v` wipes it. On this data 544 alerts become 478 incidents (1.1
+keeps it; `docker compose down -v` wipes it. On this data 554 alerts become 478 incidents (1.2
 per incident, because most are SSH guesses from different addresses); the numbers come from
 `uv run python scripts/readme_numbers.py`. Why it is built this way: [decisions.md](decisions.md).
 
