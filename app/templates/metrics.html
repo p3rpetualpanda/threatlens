@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}Metrics - ThreatLens{% endblock %}
+{% block body %}
+<h1>Metrics</h1>
+<dl>
+<dt>Alerts per incident</dt><dd>{% if reduction is none %}n/a{% else %}{{ reduction }} ({{ alerts }} alerts, {{ incidents }} incidents){% endif %}</dd>
+<dt>Mean time to acknowledge (MTTA)</dt><dd>{% if mtta_hours is none %}n/a{% else %}{{ mtta_hours }} hours{% endif %} ({{ incidents - unacknowledged }} of {{ incidents }} incidents acknowledged, {{ unacknowledged }} waiting)</dd>
+<dt>Mean time to resolve (MTTR)</dt><dd>{% if mttr_hours is none %}n/a{% else %}{{ mttr_hours }} hours{% endif %}</dd>
+</dl>
+<p class="muted">MTTA runs from incident creation to the first owner. MTTR runs from creation to the latest resolve and counts resolved incidents only. MTTA ignores incidents nobody has taken yet. Dispositions count alerts in resolved incidents.</p>
+{% if rules %}
+<div class="scroll" role="region" aria-label="Dispositions per rule" tabindex="0">
+<table>
+<caption class="muted">Dispositions per rule</caption>
+<thead><tr><th scope="col">Rule</th><th scope="col">Alerts</th><th scope="col">True positive</th><th scope="col">Benign true positive</th><th scope="col">False positive</th><th scope="col">False-positive rate</th></tr></thead>
+<tbody>
+{% for r in rules %}
+<tr><td>{{ r.rule }}</td><td>{{ r.alerts }}</td><td>{{ r.true_positive }}</td><td>{{ r.benign }}</td><td>{{ r.false_positive }}</td><td>{% if r.fp_rate is none %}n/a{% else %}{{ "%.1f"|format(r.fp_rate * 100) }}% ({{ r.decided }} decided){% endif %}</td></tr>
+{% endfor %}
+</tbody>
+</table>
+</div>
+{% else %}<p>No alerts yet.</p>{% endif %}
+{% endblock %}

@@ -8,7 +8,7 @@ ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M0-M6b done; M6c metrics, M7 verdict export and M8 demo not built)
+## Current state (v2, M0-M6c done; M7 verdict export and M8 demo not built)
 
 - FastAPI app: `/health`, ingest, and JSON login (`POST /api/v1/login`, `/logout`, `GET /me`).
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
@@ -53,6 +53,9 @@ workflow. It does no detection of its own.
 - Reports: `/incidents/{id}/report` is a printable page and `/incidents/{id}/report.md` a Markdown
   download (any signed-in role). Summary, scope, timeline, techniques, risk factors, checklist,
   audited actions and disposition; every stored value is escaped. Merged incidents are 404.
+- Metrics: `/metrics` (any signed-in role) shows alerts per incident, MTTA (creation to first
+  owner, from the audit log), MTTR (resolved incidents) and dispositions with a false-positive
+  rate per rule. Merged-away incidents are left out; no data shows "n/a".
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Admin pages (M5d): a fixed one-shot message after each good action. `/audit` (lead and admin)
   lists the newest 50 audit rows (leads do not see login rows; admins do) and the hash-chain result (new rows checked on every view; the whole chain every 10 minutes, or every view if the append-only triggers are gone).

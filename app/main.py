@@ -17,6 +17,7 @@ from .auth import router as auth_router
 from .bodylimit import BodyLimit
 from .db import connect, migrate
 from .incidents_api import router as incidents_router
+from .metrics_ui import router as metrics_ui_router
 from .report_ui import router as report_ui_router
 from .ui import router as ui_router
 from .ui_actions import router as ui_actions_router
@@ -97,6 +98,7 @@ app.include_router(ui_actions_router)
 app.include_router(admin_ui_router)
 app.include_router(account_ui_router)
 app.include_router(report_ui_router)
+app.include_router(metrics_ui_router)
 
 
 @app.get("/health")

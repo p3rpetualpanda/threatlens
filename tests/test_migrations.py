@@ -11,7 +11,7 @@ from app.db import _ordered, connect, migrate
 
 def test_migrate_creates_schema_and_version(tmp_path: Path) -> None:
     db = tmp_path / "t.db"
-    assert migrate(db) == 9
+    assert migrate(db) == 10
     with closing(connect(db)) as conn:
         names = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     for expected in (
@@ -35,7 +35,7 @@ def test_migrate_creates_schema_and_version(tmp_path: Path) -> None:
 def test_migrate_is_idempotent(tmp_path: Path) -> None:
     db = tmp_path / "t.db"
     migrate(db)
-    assert migrate(db) == 9  # second run applies nothing, no error
+    assert migrate(db) == 10  # second run applies nothing, no error
 
 
 def test_orders_migrations_numerically(tmp_path: Path) -> None:
@@ -175,3 +175,11 @@ def test_migrate_survives_another_process_applying_it_first(
         "app.db.sqlite3.connect", lambda path, **kw: real_connect(path, factory=Racing, **kw)
     )
     assert migrate(db, migrations_dir=d) == 1
+
+
+def test_audit_log_has_a_target_action_index(tmp_path: Path) -> None:
+    db = tmp_path / "t.db"
+    migrate(db)
+    with closing(connect(db)) as conn:
+        cols = [r["name"] for r in conn.execute("PRAGMA index_info(idx_audit_target_action)")]
+    assert cols == ["target", "action"]
