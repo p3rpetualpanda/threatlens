@@ -34,4 +34,5 @@ fieldset { border: 1px solid var(--line); min-width: 0; }
 @media print {
   header, .skip, .noprint { display: none; }
   body { background: #fff; color: #000; }
+  h1, h2, h3 { break-after: avoid; }
 }

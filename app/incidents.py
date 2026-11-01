@@ -147,6 +147,9 @@ def _join_on_touched(
     out: list[_Group] = []
     for g in groups:
         mine = {member_of[a] for a in g.members if a in member_of} & touched
+        if not mine:  # nothing to join; skipping keeps a big untouched import linear
+            out.append(g)
+            continue
         for prev in [p for p in out if mine & {member_of.get(a) for a in p.members}]:
             out.remove(prev)
             g.members |= prev.members
