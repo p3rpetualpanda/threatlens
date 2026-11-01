@@ -23,9 +23,9 @@ disposition and status where it has none; incident ids never change.
 | Setting | Incidents | Largest | Single-alert |
 |---|---|---|---|
 | 2 h window, 20% auto-stoplist (shipped) | 478 | 11 | 434 |
-| 6 h, 20% (544-finding export) | 400 | 8 | 322 |
-| 12 h, 20% | 305 | 39 | 224 |
-| 24 h, 20% | 216 | 65 | 147 |
+| 6 h, 20% | 400 | 11 | 321 |
+| 12 h, 20% | 305 | 39 | 223 |
+| 24 h, 20% | 216 | 65 | 146 |
 
 Acceptance (no incident above 50 alerts) holds at the shipped settings: the largest has 11.
 515 of the 554 alerts are R20 SSH brute-force attempts from 173 source IPs against one host
