@@ -1,0 +1,15 @@
+.git
+.venv
+__pycache__
+*.db
+data
+graphify-out
+tasks
+tests
+docs
+.mypy_cache
+.ruff_cache
+.pytest_cache
+CLAUDE.md
+mistakes.md
+next-steps.md
