@@ -8,7 +8,7 @@ ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M0-M6c done; M7 verdict export and M8 demo not built)
+## Current state (v2, M0-M7 done; M8 demo not built)
 
 - FastAPI app: `/health`, ingest, and JSON login (`POST /api/v1/login`, `/logout`, `GET /me`).
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
@@ -56,6 +56,13 @@ workflow. It does no detection of its own.
 - Metrics: `/metrics` (any signed-in role) shows alerts per incident, MTTA (creation to first
   owner, from the audit log), MTTR (resolved incidents) and dispositions with a false-positive
   rate per rule. Merged-away incidents are left out; no data shows "n/a".
+- Verdicts back to beacon: `threatlens export-verdicts --out FILE` writes `alert_id,status,reason`
+  for every alert with a disposition (`benign_true_positive` becomes `closed`). It refuses an
+  existing file, so beacon's `detections/verdicts.csv` is never overwritten. Apply with
+  `beacon detect --verdicts FILE`. Beacon only changes alerts still `new`; the rest are reported
+  as conflicts. `scripts/roundtrip_beacon.py ../beacon` shows it: on the fixture, a false-positive
+  verdict took R01's precision from 1.0 to 0.0, a true positive left R05 at 1.0 with one verdict,
+  and the benign one did not move R20.
 - API keys: `threatlens create-api-key NAME` prints a token once; only its hash is stored.
 - Admin pages (M5d): a fixed one-shot message after each good action. `/audit` (lead and admin)
   lists the newest 50 audit rows (leads do not see login rows; admins do) and the hash-chain result (new rows checked on every view; the whole chain every 10 minutes, or every view if the append-only triggers are gone).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import csv
 import getpass
 import json
 import os
@@ -24,6 +25,7 @@ from .enrich import load_assets, load_identities
 from .incidents import rescore
 from .ingest import ingest_findings
 from .users import create_user
+from .verdicts import FIELDS, build_rows
 
 BATCH = 1_000
 MAX_SHOWN = 10
@@ -122,6 +124,32 @@ def _create_admin(email: str, db: Path) -> int:
         print(f"cannot create admin: {exc}", file=sys.stderr)
         return 1
     print(f"created admin {email.strip().lower()}")
+    return 0
+
+
+def _export_verdicts(out: Path, db: Path) -> int:
+    if out.exists():  # beacon's hand-reviewed detections/verdicts.csv must never be clobbered
+        print(f"{out} exists; choose a new path", file=sys.stderr)
+        return 1
+    if not db.exists():  # migrate() would create an empty database from a mistyped path
+        print(f"cannot export verdicts: {db} not found", file=sys.stderr)
+        return 1
+    tmp = out.with_name(out.name + ".tmp")
+    try:
+        migrate(db)
+        with closing(connect(db)) as conn:
+            rows = build_rows(conn)
+        with tmp.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(FIELDS)
+            writer.writerows(rows)
+        os.link(tmp, out)  # unlike replace(), refuses a file that appeared since the check
+        tmp.unlink()
+    except (OSError, sqlite3.Error) as exc:
+        tmp.unlink(missing_ok=True)
+        print(f"cannot export verdicts: {exc}", file=sys.stderr)
+        return 1
+    print(f"wrote {len(rows)} verdicts to {out}")
     return 0
 
 
@@ -263,6 +291,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         "create-admin", help="create an admin; password from $THREATLENS_ADMIN_PASSWORD or prompt"
     )
     admin.add_argument("email")
+    verdicts = commands.add_parser(
+        "export-verdicts", help="write dispositions as a beacon verdicts CSV (new file only)"
+    )
+    verdicts.add_argument("--out", type=Path, required=True)
     assets = commands.add_parser("load-assets", help="replace assets from a CSV")
     assets.add_argument("file", type=Path)
     idents = commands.add_parser("load-identities", help="replace identities from a CSV")
@@ -276,12 +308,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     user = commands.add_parser("user", help="disable, enable or sign out an account")
     user.add_argument("action", choices=["disable", "enable", "revoke-sessions", "set-password"])
     user.add_argument("email")
-    for sub in (imp, key, admin, assets, idents, audit, user):
+    for sub in (imp, key, admin, verdicts, assets, idents, audit, user):
         sub.add_argument("--db", type=Path, default=None, help="default: $THREATLENS_DB_PATH")
     args = parser.parse_args(argv)
     db = args.db or _default_db()
     if args.command == "import":
         return _import(args.file, db)
+    if args.command == "export-verdicts":
+        return _export_verdicts(args.out, db)
     if args.command == "create-admin":
         return _create_admin(args.email, db)
     if args.command in ("load-assets", "load-identities"):
