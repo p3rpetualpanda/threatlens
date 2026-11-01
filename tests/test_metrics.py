@@ -194,3 +194,15 @@ def test_page_on_an_empty_database_says_not_enough_data(conn: sqlite3.Connection
 def test_anonymous_is_sent_to_login(conn: sqlite3.Connection) -> None:
     c = TestClient(main_mod.app, base_url="http://localhost", follow_redirects=False)
     assert c.get("/metrics").status_code == 303
+
+
+def test_bad_or_negative_timestamps_are_skipped_not_fatal() -> None:
+    from app.metrics import _mean_hours
+
+    pairs = [
+        ("2026-10-25T12:00:00", "2026-10-25T14:00:00+00:00"),  # naive vs aware
+        ("junk", "2026-10-25T14:00:00"),
+        ("2026-10-25T12:00:00", "2026-10-25T10:00:00"),  # negative
+        ("2026-10-25T12:00:00", "2026-10-25T14:00:00"),
+    ]
+    assert _mean_hours(pairs) == 2.0

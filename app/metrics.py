@@ -13,12 +13,15 @@ from typing import Any
 
 
 def _mean_hours(pairs: list[tuple[str, str]]) -> float | None:
-    if not pairs:
-        return None
-    secs = [
-        (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds() for a, b in pairs
-    ]
-    return round(sum(secs) / len(secs) / 3600, 1)
+    secs = []
+    for a, b in pairs:
+        try:
+            d = (datetime.fromisoformat(b) - datetime.fromisoformat(a)).total_seconds()
+        except (TypeError, ValueError):  # mixed naive/aware or non-ISO text: skip, don't 500
+            continue
+        if d >= 0:  # a negative span is bad data, not a fast response
+            secs.append(d)
+    return round(sum(secs) / len(secs) / 3600, 1) if secs else None
 
 
 def build(conn: sqlite3.Connection) -> dict[str, Any]:
@@ -44,9 +47,12 @@ def build(conn: sqlite3.Connection) -> dict[str, Any]:
     rules = []
     for r in conn.execute(
         "SELECT a.rule, COUNT(*) AS alerts, "
-        "COALESCE(SUM(i.status = 'resolved' AND i.disposition = 'true_positive'), 0) AS true_positive, "  # noqa: E501
-        "COALESCE(SUM(i.status = 'resolved' AND i.disposition = 'benign_true_positive'), 0) AS benign, "  # noqa: E501
-        "COALESCE(SUM(i.status = 'resolved' AND i.disposition = 'false_positive'), 0) AS false_positive "  # noqa: E501
+        "COALESCE(SUM(i.status = 'resolved' "
+        "AND i.disposition = 'true_positive'), 0) AS true_positive, "
+        "COALESCE(SUM(i.status = 'resolved' "
+        "AND i.disposition = 'benign_true_positive'), 0) AS benign, "
+        "COALESCE(SUM(i.status = 'resolved' "
+        "AND i.disposition = 'false_positive'), 0) AS false_positive "
         "FROM incident_alerts ia JOIN incidents i ON i.id = ia.incident_id "
         "JOIN alerts a ON a.id = ia.alert_id WHERE i.merged_into IS NULL "
         "GROUP BY a.rule ORDER BY a.rule"
