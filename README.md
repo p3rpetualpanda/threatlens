@@ -29,7 +29,7 @@ per incident, because most are SSH guesses from different addresses); the number
 - **Respond** with playbook checklists, printable reports and a `/metrics` page.
 - **Feed back** dispositions to beacon with `threatlens export-verdicts`.
 
-Details, one feature at a time: [docs/features.md](docs/features.md). Threat model: [docs/threat-model.md](docs/threat-model.md).
+Details, one feature at a time: [docs/features.md](docs/features.md). Threat model: [docs/threat-model.md](docs/threat-model.md). Worked example on OTRF's public APT29 logs: [docs/investigations/apt29.md](docs/investigations/apt29.md).
 
 ## Screenshots
 
