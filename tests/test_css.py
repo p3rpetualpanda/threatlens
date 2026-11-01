@@ -23,7 +23,7 @@ def _rem(selector: str, prop: str) -> float:
 
 
 def test_checkboxes_are_at_least_24px() -> None:
-    sel = "input[type=checkbox]"
+    sel = 'input[type="checkbox"]'
     assert _rem(sel, "width") >= MIN_REM and _rem(sel, "height") >= MIN_REM
 
 

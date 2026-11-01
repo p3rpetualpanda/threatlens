@@ -11,18 +11,17 @@ table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--line); vertical-align: top; }
 .badge { border: 1px solid var(--fg); border-radius: 0.25rem; padding: 0 0.35rem; font-size: 0.85rem; }
 .muted { color: var(--muted); }
-.error { border: 2px solid #a40e26; padding: 0.5rem; }
+.error { border: 2px solid #a40e26; padding: 0.5rem; color: #a40e26; }
 label { display: block; margin: 0.5rem 0; }
 input, select, button { font: inherit; padding: 0.3rem; }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .timeline { list-style: none; padding: 0; border-left: 3px solid var(--line); }
 .timeline li { padding: 0.25rem 0 0.25rem 0.75rem; }
 pre { white-space: pre-wrap; word-break: break-word; }
-.error { color: #a40e26; }
 input, select, textarea { max-width: min(100%, 36rem); box-sizing: border-box; }
-textarea, input:not([type=checkbox]) { width: 100%; }
+textarea, input:not([type="checkbox"]) { width: 100%; }
 button { min-height: 2.75rem; border: 1px solid var(--fg); background: var(--bg); color: var(--fg); cursor: pointer; }
-input[type=checkbox] { width: 1.5rem; height: 1.5rem; vertical-align: middle; }
+input[type="checkbox"] { width: 1.5rem; height: 1.5rem; vertical-align: middle; }
 main a { display: inline-block; min-height: 1.5rem; } /* no link sits inside a sentence */
 fieldset { border: 1px solid var(--line); min-width: 0; }
 .notice { border: 2px solid #116329; padding: 0.5rem; }
