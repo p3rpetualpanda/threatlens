@@ -22,7 +22,8 @@ pre { white-space: pre-wrap; word-break: break-word; }
 input, select, textarea { max-width: min(100%, 36rem); box-sizing: border-box; }
 textarea, input:not([type=checkbox]) { width: 100%; }
 button { min-height: 2.75rem; border: 1px solid var(--fg); background: var(--bg); color: var(--fg); cursor: pointer; }
-input[type=checkbox] { width: 1.25rem; height: 1.25rem; vertical-align: middle; }
+input[type=checkbox] { width: 1.5rem; height: 1.5rem; vertical-align: middle; }
+main a { display: inline-block; min-height: 1.5rem; } /* no link sits inside a sentence */
 fieldset { border: 1px solid var(--line); min-width: 0; }
 .notice { border: 2px solid #116329; padding: 0.5rem; }
 .token { overflow-wrap: anywhere; user-select: all; }
