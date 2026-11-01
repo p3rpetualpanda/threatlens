@@ -1,17 +1,18 @@
 # Demo data
 
-`beacon_findings.jsonl` is a full `beacon export-alerts` run: 544 findings in contract v1
-(`contracts/detection-finding-v1.schema.json`), made from beacon commit `dd0e111` (beacon PR 13)
-with all 12 rules.
+`beacon_findings.jsonl` is a full `beacon export-alerts` run: 554 findings in contract v1
+(`contracts/detection-finding-v1.schema.json`), made from beacon commit `e5dd59a` (beacon PR 15)
+with all 15 rules.
 
 | Environment (`unmapped.environment`) | Findings |
 |---|---|
 | `loghub_openssh` | 515 |
-| `apt29_day2_host` | 8 |
-| `apt29_day1_host` | 4 |
+| `apt29_day2_host` | 12 |
+| `apt29_day1_host` | 8 |
 | `lsass_dump_comsvcs`, `lsass_dump_dumpert_syscalls`, `rdp_taskmanager_lsass_dump`, `run_keys_empire` | 3 each |
 | `schtask_create_remote` | 2 |
-| `psexec_empire`, `service_mod_fax`, `wmi_exec_empire` | 1 each |
+| `wmi_exec_empire` | 2 |
+| `psexec_empire`, `service_mod_fax`, `purplesharp_ad_playbook` | 1 each |
 
 ## Sources and licences
 

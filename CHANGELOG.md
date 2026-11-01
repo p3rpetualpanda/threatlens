@@ -14,7 +14,7 @@
 - M5 analyst workflow: JSON API and HTML pages, admin pages, audit anchors, ingest throttle.
 - M6 playbooks, incident reports and the `/metrics` page.
 - M7 `threatlens export-verdicts`: dispositions back to beacon, with a round-trip check.
-- M8 `docker compose up` demo on beacon's 544 findings, `scripts/readme_numbers.py`,
+- M8 `docker compose up` demo on beacon's 554 findings, `scripts/readme_numbers.py`,
   `decisions.md`.
 
 The v1 MVP (detection rules, dashboard) is frozen at tag `v0.1.0`.
