@@ -1,7 +1,7 @@
 # Demo data
 
 `beacon_findings.jsonl` is a full `beacon export-alerts` run: 544 findings in contract v1
-(`contracts/detection-finding-v1.schema.json`), made from beacon commit `34a5284` (beacon PR 12)
+(`contracts/detection-finding-v1.schema.json`), made from beacon branch `data-cleaning` (beacon PR 13, after PR 12)
 with all 12 rules.
 
 | Environment (`unmapped.environment`) | Findings |
