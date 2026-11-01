@@ -2,13 +2,25 @@
 
 ![CI](https://github.com/p3rpetualpanda/threatlens/actions/workflows/ci.yml/badge.svg)
 
-> v2 in progress; the v1 MVP is frozen at tag `v0.1.0`.
+> The v1 MVP is frozen at tag `v0.1.0`. This is v2.
 
 ThreatLens is the "handles it" half of the beacon / ThreatLens split: it turns
 beacon's findings into prioritised, explained alerts with an analyst incident
 workflow. It does no detection of its own.
 
-## Current state (v2, M0-M7 done; M8 demo not built)
+## Try it
+
+```bash
+docker compose up
+```
+
+It loads 544 findings from beacon's demo export, correlates them and prints a one-off admin
+login in the log. Open `http://127.0.0.1:8000/login`. Data lives in a Docker volume, so a restart
+keeps it; `docker compose down -v` wipes it. On this data 544 alerts become 478 incidents (1.1
+per incident, because most are SSH guesses from different addresses); the numbers come from
+`uv run python scripts/readme_numbers.py`. Why it is built this way: [decisions.md](decisions.md).
+
+## Current state (v2, M0-M8 done)
 
 - FastAPI app: `/health`, ingest, and JSON login (`POST /api/v1/login`, `/logout`, `GET /me`).
 - SQLite (WAL) with a numbered migrations runner: `app/migrations/NNN_name.sql`,
@@ -82,6 +94,7 @@ workflow. It does no detection of its own.
 - First data model in place (see `app/migrations/001_initial.sql`);
   `assets` and `identities` gained their columns in migration 006.
 - Tooling: uv, ruff, mypy (strict), bandit, pip-audit, pytest. `make check` is the gate.
+- Known limit: no host-to-network correlation on the demo data. Beacon's Zeek logs and host logs are 2 d 2 h (day 1) and 1 d 1 h (day 2) apart, and OTRF's docs do not say whether they are the same run, so findings from the two are never linked.
 
 ## Screenshots
 
