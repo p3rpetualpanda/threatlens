@@ -3,6 +3,8 @@
 ## Unreleased
 
 - Demo findings refreshed from beacon: 554 findings (adds rules R10, R11 and R15). 478 incidents, largest 11 alerts.
+- Added `docs/investigations/apt29.md`: beacon alerts on OTRF's public APT29 logs traced through ThreatLens incidents, with screenshots.
+- Dev dependencies bumped: ruff 0.17.3, mypy 2.4.1, pytest 9.2.0, hypothesis 6.170.15, types-pyyaml 6.0.12.20261103.
 
 ## 1.0.1 - 2026-11-01
 
